@@ -103,6 +103,8 @@ func TestFinancialsAndValuation(t *testing.T) {
 		{Date: "2024-05-01", Code: "86970", C: f(1000), AdjFactor: f(1)},
 		{Date: "2024-06-01", Code: "86970", C: f(1000), AdjFactor: f(1)},
 		{Date: "2024-07-01", Code: "86970", C: f(500), AdjFactor: f(0.5)},
+		// 上場廃止などで、直近の株価が無い銘柄。
+		{Date: "2024-05-01", Code: "99990", C: f(1), AdjFactor: f(1)},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,5 +163,10 @@ func TestFinancialsAndValuation(t *testing.T) {
 	}
 	if coName != "JPX" {
 		t.Errorf("co_name = %q", coName)
+	}
+
+	var delisted int
+	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM valuation WHERE code = '99990'`).Scan(&delisted); err != nil || delisted != 0 {
+		t.Errorf("stale-price code in valuation: count = %d, err = %v", delisted, err)
 	}
 }

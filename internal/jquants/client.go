@@ -16,12 +16,16 @@ const DefaultBaseURL = "https://api.jquants.com/v2"
 
 const maxRetries = 3
 
+// 財務情報APIは全プラン共通で、他のAPIとは別枠の60リクエスト/分。
+const finsRatePerMin = 60
+
 type Client struct {
-	baseURL   string
-	apiKey    string
-	http      *http.Client
-	limiter   *rate.Limiter
-	retryWait time.Duration
+	baseURL     string
+	apiKey      string
+	http        *http.Client
+	limiter     *rate.Limiter
+	finsLimiter *rate.Limiter
+	retryWait   time.Duration
 }
 
 type Option func(*Client)
@@ -39,11 +43,12 @@ func New(apiKey string, ratePerMin int, opts ...Option) *Client {
 		ratePerMin = 1
 	}
 	c := &Client{
-		baseURL:   DefaultBaseURL,
-		apiKey:    apiKey,
-		http:      &http.Client{Timeout: 60 * time.Second},
-		limiter:   rate.NewLimiter(rate.Every(time.Minute/time.Duration(ratePerMin)), 1),
-		retryWait: 2 * time.Minute,
+		baseURL:     DefaultBaseURL,
+		apiKey:      apiKey,
+		http:        &http.Client{Timeout: 60 * time.Second},
+		limiter:     rate.NewLimiter(rate.Every(time.Minute/time.Duration(ratePerMin)), 1),
+		finsLimiter: rate.NewLimiter(rate.Every(time.Minute/finsRatePerMin), 1),
+		retryWait:   2 * time.Minute,
 	}
 	for _, o := range opts {
 		o(c)
@@ -56,12 +61,12 @@ type page[T any] struct {
 	PaginationKey string `json:"pagination_key"`
 }
 
-func fetchAll[T any](ctx context.Context, c *Client, path string, q url.Values) ([]T, error) {
+func fetchAll[T any](ctx context.Context, c *Client, lim *rate.Limiter, path string, q url.Values) ([]T, error) {
 	q = cloneValues(q)
 	var all []T
 	for {
 		var p page[T]
-		if err := c.get(ctx, path, q, &p); err != nil {
+		if err := c.get(ctx, lim, path, q, &p); err != nil {
 			return nil, err
 		}
 		all = append(all, p.Data...)
@@ -72,14 +77,14 @@ func fetchAll[T any](ctx context.Context, c *Client, path string, q url.Values) 
 	}
 }
 
-func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
+func (c *Client) get(ctx context.Context, lim *rate.Limiter, path string, q url.Values, out any) error {
 	u := c.baseURL + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
 
 	for attempt := 0; ; attempt++ {
-		if err := c.limiter.Wait(ctx); err != nil {
+		if err := lim.Wait(ctx); err != nil {
 			return err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

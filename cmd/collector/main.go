@@ -24,6 +24,7 @@ commands:
   migrate   DBスキーマを最新にする
   master    上場銘柄一覧を取得して保存する
   prices    株価四本値を取得して保存する (--from, --to: YYYY-MM-DD)
+  financials  財務情報を開示日ごとに取得して保存する (--from, --to: YYYY-MM-DD)
 
 environment:
   DATABASE_URL           PostgreSQL接続文字列 (必須)
@@ -59,8 +60,8 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
-	fromStr := fs.String("from", "", "取得開始日 YYYY-MM-DD (prices のみ。既定: DBの最新日の翌日)")
-	toStr := fs.String("to", "", "取得終了日 YYYY-MM-DD (prices のみ。既定: 今日(JST)から--lag-days日前)")
+	fromStr := fs.String("from", "", "取得開始日 YYYY-MM-DD (prices・financials のみ。既定: prices はDBの最新日の翌日、financials は最新開示日)")
+	toStr := fs.String("to", "", "取得終了日 YYYY-MM-DD (prices・financials のみ。既定: 今日(JST)から--lag-days日前)")
 	lagDays := fs.Int("lag-days", 0, "--to 未指定時に今日から遅らせる日数 (Freeプランのデータ遅延に合わせる。例: 84)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -94,7 +95,7 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 	switch cmd {
 	case "master":
 		return c.CollectListedInfo(ctx)
-	case "prices":
+	case "prices", "financials":
 		from, err := parseDate(*fromStr)
 		if err != nil {
 			return err
@@ -108,6 +109,9 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 		}
 		if to.IsZero() {
 			to = todayJST().AddDate(0, 0, -*lagDays)
+		}
+		if cmd == "financials" {
+			return c.CollectFinancials(ctx, from, to)
 		}
 		return c.CollectPrices(ctx, from, to)
 	default:

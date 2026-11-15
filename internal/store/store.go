@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -127,4 +129,101 @@ func (s *Store) sendBatches(ctx context.Context, n int, queue func(b *pgx.Batch,
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+type finCol struct {
+	col string
+	key string
+	typ string
+}
+
+var finCols = []finCol{
+	{"code", "Code", "text"},
+	{"disc_no", "DiscNo", "text"},
+	{"disc_date", "DiscDate", "date"},
+	{"disc_time", "DiscTime", "time"},
+	{"doc_type", "DocType", "text"},
+	{"cur_per_type", "CurPerType", "text"},
+	{"cur_per_st", "CurPerSt", "date"},
+	{"cur_per_en", "CurPerEn", "date"},
+	{"cur_fy_st", "CurFYSt", "date"},
+	{"cur_fy_en", "CurFYEn", "date"},
+	{"sales", "Sales", "numeric"},
+	{"op", "OP", "numeric"},
+	{"odp", "OdP", "numeric"},
+	{"np", "NP", "numeric"},
+	{"eps", "EPS", "numeric"},
+	{"deps", "DEPS", "numeric"},
+	{"ta", "TA", "numeric"},
+	{"eq", "Eq", "numeric"},
+	{"eq_ar", "EqAR", "numeric"},
+	{"bps", "BPS", "numeric"},
+	{"cfo", "CFO", "numeric"},
+	{"cfi", "CFI", "numeric"},
+	{"cff", "CFF", "numeric"},
+	{"cash_eq", "CashEq", "numeric"},
+	{"sh_eq", "ShEq", "numeric"},
+	{"roe", "ROE", "numeric"},
+	{"div_ann", "DivAnn", "numeric"},
+	{"f_sales", "FSales", "numeric"},
+	{"f_op", "FOP", "numeric"},
+	{"f_odp", "FOdP", "numeric"},
+	{"f_np", "FNP", "numeric"},
+	{"f_eps", "FEPS", "numeric"},
+	{"f_div_ann", "FDivAnn", "numeric"},
+	{"sh_out_fy", "ShOutFY", "numeric"},
+	{"tr_sh_fy", "TrShFY", "numeric"},
+	{"avg_sh", "AvgSh", "numeric"},
+}
+
+// APIの値は文字列で、値が無い場合は空文字列なので、SQL側でNULLIFしてから型変換する。
+var upsertFinancial = buildUpsertFinancial()
+
+func buildUpsertFinancial() string {
+	var cols, vals, sets []string
+	for i, c := range finCols {
+		cols = append(cols, c.col)
+		if c.typ == "text" {
+			vals = append(vals, fmt.Sprintf("NULLIF($%d::text, '')", i+1))
+		} else {
+			vals = append(vals, fmt.Sprintf("NULLIF($%d::text, '')::%s", i+1, c.typ))
+		}
+		if c.col != "code" && c.col != "disc_no" {
+			sets = append(sets, fmt.Sprintf("%s = EXCLUDED.%s", c.col, c.col))
+		}
+	}
+	raw := len(finCols) + 1
+	cols = append(cols, "raw")
+	vals = append(vals, fmt.Sprintf("$%d::jsonb", raw))
+	sets = append(sets, "raw = EXCLUDED.raw", "updated_at = now()")
+	return "INSERT INTO financials (" + strings.Join(cols, ", ") + ")\nVALUES (" + strings.Join(vals, ", ") +
+		")\nON CONFLICT (code, disc_no) DO UPDATE SET " + strings.Join(sets, ", ")
+}
+
+func (s *Store) UpsertFinancials(ctx context.Context, rows []jquants.Financial) error {
+	return s.sendBatches(ctx, len(rows), func(b *pgx.Batch, i int) error {
+		r := rows[i]
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		args := make([]any, 0, len(finCols)+1)
+		for _, c := range finCols {
+			args = append(args, r[c.key])
+		}
+		args = append(args, string(raw))
+		b.Queue(upsertFinancial, args...)
+		return nil
+	})
+}
+
+func (s *Store) LatestFinancialDate(ctx context.Context) (time.Time, bool, error) {
+	var d *time.Time
+	if err := s.conn.QueryRow(ctx, `SELECT max(disc_date) FROM financials`).Scan(&d); err != nil {
+		return time.Time{}, false, err
+	}
+	if d == nil {
+		return time.Time{}, false, nil
+	}
+	return *d, true, nil
 }

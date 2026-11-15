@@ -19,6 +19,7 @@ go run ./cmd/collector master
 go run ./cmd/collector prices --from 2024-01-04 --to 2024-01-31
 go run ./cmd/collector prices   # DBの最新日の翌日から今日(JST)まで
 go run ./cmd/collector prices --lag-days 84   # 今日から84日前まで(Freeプランのデータ遅延)
+go run ./cmd/collector financials --from 2024-08-23 --lag-days 84   # 開示日ごとに財務情報を取得
 ```
 
 | 環境変数 | 内容 |
@@ -27,7 +28,7 @@ go run ./cmd/collector prices --lag-days 84   # 今日から84日前まで(Free�
 | `JQUANTS_API_KEY` | J-Quants APIキー（`master`・`prices`で必須） |
 | `JQUANTS_RATE_PER_MIN` | 1分あたりのリクエスト数。既定は5（Freeプラン）。プランに合わせて上げる |
 
-`prices`は平日を1日ずつ全銘柄分取得する。レート制限（429）を受けた場合は待機して再試行する。
+`prices`は平日を1日ずつ全銘柄分取得する。`financials`は平日を開示日ごとに全銘柄分取得し（`--from`省略時はDBの最新開示日から）、財務情報APIは他のAPIとは別枠の60リクエスト/分で動く。レート制限（429）を受けた場合は待機して再試行する。
 
 ## テーブル
 
@@ -35,6 +36,17 @@ go run ./cmd/collector prices --lag-days 84   # 今日から84日前まで(Free�
 |---|---|---|
 | `listed_info` | 上場銘柄一覧（`/equities/master`） | `(code, date)` |
 | `prices` | 株価四本値（`/equities/bars/daily`） | `(code, date)` |
+| `financials` | 財務情報（`/fins/summary`）。主要な項目は列に、全項目は`raw`(jsonb)に保存。訂正開示も別レコード | `(code, disc_no)` |
+
+## ビュー
+
+`valuation`: 銘柄ごとの最新の株価日を基準にした割安度指標（`pbr`、`per`、`f_per`(予想PER)、`f_dividend_yield`、`eq_ar`、`roe`、`cfo`など）。分析側はこのビューを入口にする。
+
+- 財務は、株価日以前に開示された最新のものを使う（`bps`・`f_eps`などは項目ごとに最新の値がある開示を選ぶ）
+- `per`は直近の通期(`FY`)の実績EPS、`f_per`は最新の開示の通期予想EPSで計算する
+- EPS・BPS・配当は、開示後の株式分割・併合を`split_factor()`（株価の調整係数の累積）で現在の株数に換算する
+- 値が0以下のEPS・BPSの銘柄は、`per`・`pbr`をNULLにする
+- 連結決算の項目を使う（非連結のみ提出の企業は、J-Quantsが個別の値を入れる）
 
 ## テスト
 

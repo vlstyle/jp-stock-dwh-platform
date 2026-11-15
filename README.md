@@ -18,6 +18,7 @@ go run ./cmd/collector migrate
 go run ./cmd/collector master
 go run ./cmd/collector prices --from 2024-01-04 --to 2024-01-31
 go run ./cmd/collector prices   # DBの最新日の翌日から今日(JST)まで
+go run ./cmd/collector prices --lag-days 84   # 今日から84日前まで(Freeプランのデータ遅延)
 ```
 
 | 環境変数 | 内容 |

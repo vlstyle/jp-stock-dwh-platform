@@ -60,7 +60,8 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fromStr := fs.String("from", "", "取得開始日 YYYY-MM-DD (prices のみ。既定: DBの最新日の翌日)")
-	toStr := fs.String("to", "", "取得終了日 YYYY-MM-DD (prices のみ。既定: 今日(JST))")
+	toStr := fs.String("to", "", "取得終了日 YYYY-MM-DD (prices のみ。既定: 今日(JST)から--lag-days日前)")
+	lagDays := fs.Int("lag-days", 0, "--to 未指定時に今日から遅らせる日数 (Freeプランのデータ遅延に合わせる。例: 84)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -102,8 +103,11 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 		if err != nil {
 			return err
 		}
+		if *lagDays < 0 {
+			return errors.New("--lag-days must be >= 0")
+		}
 		if to.IsZero() {
-			to = todayJST()
+			to = todayJST().AddDate(0, 0, -*lagDays)
 		}
 		return c.CollectPrices(ctx, from, to)
 	default:

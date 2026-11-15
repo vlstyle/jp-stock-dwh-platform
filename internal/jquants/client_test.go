@@ -80,3 +80,24 @@ func TestAPIError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestFinancialsDecodesStringsAndNulls(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/fins/summary" || r.URL.Query().Get("date") != "2024-05-10" {
+			t.Errorf("unexpected request: %s", r.URL)
+		}
+		w.Write([]byte(`{"data":[{"Code":"86970","DiscNo":"1","EPS":"66.76","OdP":"","NP":null,"ShOutFY":528578441}]}`))
+	})
+
+	got, err := c.Financials(context.Background(), "2024-05-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	f := got[0]
+	if f["EPS"] != "66.76" || f["OdP"] != "" || f["NP"] != "" || f["ShOutFY"] != "528578441" {
+		t.Errorf("decoded = %v", f)
+	}
+}

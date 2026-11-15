@@ -27,9 +27,26 @@ func (f *fakeSource) DailyBars(_ context.Context, date string) ([]jquants.DailyB
 	return []jquants.DailyBar{{Date: date, Code: "86970"}}, nil
 }
 
+func (f *fakeSource) Financials(_ context.Context, date string) ([]jquants.Financial, error) {
+	f.fetched = append(f.fetched, date)
+	if f.empty[date] {
+		return nil, nil
+	}
+	return []jquants.Financial{{"Code": "86970", "DiscDate": date}}, nil
+}
+
 type fakeSink struct {
 	latest time.Time
 	saved  []string
+}
+
+func (f *fakeSink) UpsertFinancials(_ context.Context, rows []jquants.Financial) error {
+	f.saved = append(f.saved, rows[0]["DiscDate"])
+	return nil
+}
+
+func (f *fakeSink) LatestFinancialDate(context.Context) (time.Time, bool, error) {
+	return f.latest, !f.latest.IsZero(), nil
 }
 
 func (f *fakeSink) UpsertListedInfo(context.Context, []jquants.ListedInfo) error { return nil }
@@ -92,6 +109,26 @@ func TestCollectPricesDefaultsFromLatest(t *testing.T) {
 
 func TestCollectPricesEmptyTableNeedsFrom(t *testing.T) {
 	err := newCollector(&fakeSource{}, &fakeSink{}).CollectPrices(context.Background(), time.Time{}, day("2024-01-05"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestCollectFinancialsDefaultsFromLatestDisclosureDay(t *testing.T) {
+	src := &fakeSource{}
+	sink := &fakeSink{latest: day("2024-05-09")}
+
+	if err := newCollector(src, sink).CollectFinancials(context.Background(), time.Time{}, day("2024-05-10")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"2024-05-09", "2024-05-10"}
+	if len(src.fetched) != 2 || src.fetched[0] != want[0] || src.fetched[1] != want[1] {
+		t.Errorf("fetched = %v, want %v", src.fetched, want)
+	}
+}
+
+func TestCollectFinancialsEmptyTableNeedsFrom(t *testing.T) {
+	err := newCollector(&fakeSource{}, &fakeSink{}).CollectFinancials(context.Background(), time.Time{}, day("2024-05-10"))
 	if err == nil {
 		t.Fatal("expected error")
 	}

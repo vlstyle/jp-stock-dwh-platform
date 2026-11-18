@@ -111,7 +111,8 @@ func TestFinancialsAndValuation(t *testing.T) {
 
 	fins := []jquants.Financial{
 		{"Code": "86970", "DiscNo": "1", "DiscDate": "2024-05-01", "DiscTime": "15:00:00", "CurPerType": "FY",
-			"EPS": "50", "BPS": "500", "EqAR": "0.4", "FEPS": "60", "FDivAnn": "20", "ROE": "0.1", "CFO": "1000", "OdP": ""},
+			"EPS": "50", "BPS": "500", "EqAR": "0.4", "FEPS": "60", "FDivAnn": "20", "ROE": "0.1", "CFO": "1000", "OdP": "",
+			"CashEq": "450000", "ShOutFY": "1000", "TrShFY": "100"},
 		// 1Qの開示。BPSとFY扱いのEPSは使われず、予想EPSだけが更新される。
 		{"Code": "86970", "DiscNo": "2", "DiscDate": "2024-06-15", "DiscTime": "15:00:00", "CurPerType": "1Q",
 			"EPS": "10", "BPS": "", "FEPS": "70"},
@@ -143,11 +144,11 @@ func TestFinancialsAndValuation(t *testing.T) {
 	}
 
 	var coName string
-	var price, bps, pbr, per, fPer, yield, eqAr float64
+	var price, bps, pbr, per, fPer, yield, eqAr, cash, mcap, cashToMcap float64
 	err = s.conn.QueryRow(ctx, `
 		SELECT co_name, close::float8, bps::float8, pbr::float8, per::float8, f_per::float8,
-		       f_dividend_yield::float8, eq_ar::float8
-		FROM valuation WHERE code = '86970'`).Scan(&coName, &price, &bps, &pbr, &per, &fPer, &yield, &eqAr)
+		       f_dividend_yield::float8, eq_ar::float8, cash_eq::float8, market_cap::float8, cash_to_mcap::float8
+		FROM valuation WHERE code = '86970'`).Scan(&coName, &price, &bps, &pbr, &per, &fPer, &yield, &eqAr, &cash, &mcap, &cashToMcap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +156,8 @@ func TestFinancialsAndValuation(t *testing.T) {
 	checks := map[string][2]float64{
 		"close": {price, 500}, "bps": {bps, 250}, "pbr": {pbr, 2}, "per": {per, 20},
 		"f_per": {fPer, 500.0 / 35}, "f_dividend_yield": {yield, 0.02}, "eq_ar": {eqAr, 0.4},
+		// 発行済1000-自己株式100=900株が、分割(0.5)後は1800株。時価総額=500*1800。
+		"cash_eq": {cash, 450000}, "market_cap": {mcap, 900000}, "cash_to_mcap": {cashToMcap, 0.5},
 	}
 	for name, c := range checks {
 		if diff := c[0] - c[1]; diff > 1e-9 || diff < -1e-9 {

@@ -20,15 +20,20 @@ go run ./cmd/collector prices --from 2024-01-04 --to 2024-01-31
 go run ./cmd/collector prices   # DBの最新日の翌日から今日(JST)まで
 go run ./cmd/collector prices --lag-days 84   # 今日から84日前まで(Freeプランのデータ遅延)
 go run ./cmd/collector financials --from 2024-08-23 --lag-days 84   # 開示日ごとに財務情報を取得
+go run ./cmd/collector edinet --days 7                              # EDINETの有価証券報告書（直近7日）
 ```
 
 | 環境変数 | 内容 |
 |---|---|
 | `DATABASE_URL` | PostgreSQL接続文字列（必須） |
 | `JQUANTS_API_KEY` | J-Quants APIキー（`master`・`prices`で必須） |
+| `EDINET_API_KEY` | EDINETのAPIキー（`edinet`で必須） |
+| `EDINET_INTERVAL_MS` | EDINETへのリクエスト間隔(ミリ秒)。既定は1000 |
 | `JQUANTS_RATE_PER_MIN` | 1分あたりのリクエスト数。既定は5（Freeプラン）。プランに合わせて上げる |
 
 `prices`は平日を1日ずつ全銘柄分取得する。`financials`は平日を開示日ごとに全銘柄分取得し（`--from`省略時はDBの最新開示日から）、財務情報APIは他のAPIとは別枠の60リクエスト/分で動く。レート制限（429）を受けた場合は待機して再試行する。
+
+`edinet`は、平日を1日ずつ、提出された有価証券報告書（上場会社のみ）の一覧を取得し、未保存の書類のXBRL(CSV形式)から、当期末の貸借対照表の現金・有価証券・借入金・社債などを保存する。`--from`省略時は`--to`（既定は今日）の`--days`日前（既定7）から。連結があれば連結、無ければ個別を使い、日本基準(`jppfs_cor`)とIFRS(`jpigp_cor`)の要素を保存する。EDINETはエラーをHTTP 200の本文で返すので、本文も確認している。
 
 ## テーブル
 
@@ -36,6 +41,8 @@ go run ./cmd/collector financials --from 2024-08-23 --lag-days 84   # 開示日�
 |---|---|---|
 | `listed_info` | 上場銘柄一覧（`/equities/master`） | `(code, date)` |
 | `prices` | 株価四本値（`/equities/bars/daily`） | `(code, date)` |
+| `edinet_documents` | EDINETの有価証券報告書のメタデータ（銘柄コード、決算期末、会計基準、連結/個別） | `doc_id` |
+| `edinet_facts` | 上記の書類の、当期末の現金・有価証券・有利子負債に関する項目（円） | `(doc_id, element_id)` |
 | `financials` | 財務情報（`/fins/summary`）。主要な項目は列に、全項目は`raw`(jsonb)に保存。訂正開示も別レコード | `(code, disc_no)` |
 
 ## ビュー

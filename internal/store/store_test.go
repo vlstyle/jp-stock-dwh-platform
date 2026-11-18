@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vlstyle/jp-stock-dwh-platform/internal/edinet"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/jquants"
 )
 
@@ -171,5 +172,57 @@ func TestFinancialsAndValuation(t *testing.T) {
 	var delisted int
 	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM valuation WHERE code = '99990'`).Scan(&delisted); err != nil || delisted != 0 {
 		t.Errorf("stale-price code in valuation: count = %d, err = %v", delisted, err)
+	}
+}
+
+func TestEdinetDocumentUpsert(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	if err := Migrate(ctx, url); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if _, err := s.conn.Exec(ctx, `TRUNCATE edinet_documents CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := edinet.Document{DocID: "S100AAAA", SecCode: "86970", FilerName: "JPX", DocTypeCode: "120", PeriodEnd: "2026-03-31"}
+	day := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
+	rep := edinet.Report{AccountingStd: "IFRS", Scope: edinet.ScopeConsolidated, Facts: map[string]string{
+		"jppfs_cor:CashAndDeposits": "1000", "jppfs_cor:BondsPayable": "-5",
+	}}
+	for range 2 {
+		if err := s.UpsertEdinetDocument(ctx, doc, day, rep); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 再保存で、項目は置き換わる。
+	rep.Facts = map[string]string{"jppfs_cor:CashAndDeposits": "2000"}
+	if err := s.UpsertEdinetDocument(ctx, doc, day, rep); err != nil {
+		t.Fatal(err)
+	}
+
+	var n int
+	var cash float64
+	if err := s.conn.QueryRow(ctx, `SELECT count(*), max(value)::float8 FROM edinet_facts WHERE doc_id = 'S100AAAA'`).Scan(&n, &cash); err != nil || n != 1 || cash != 2000 {
+		t.Errorf("facts: n=%d cash=%v err=%v", n, cash, err)
+	}
+	var std, scope string
+	var period time.Time
+	if err := s.conn.QueryRow(ctx, `SELECT accounting_std, scope, period_end FROM edinet_documents WHERE doc_id = 'S100AAAA'`).Scan(&std, &scope, &period); err != nil ||
+		std != "IFRS" || scope != "consolidated" || !period.Equal(time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("doc: %q %q %v err=%v", std, scope, period, err)
+	}
+
+	got, err := s.ExistingEdinetDocs(ctx, []string{"S100AAAA", "S100BBBB"})
+	if err != nil || len(got) != 1 || !got["S100AAAA"] {
+		t.Errorf("existing = %v, err = %v", got, err)
 	}
 }

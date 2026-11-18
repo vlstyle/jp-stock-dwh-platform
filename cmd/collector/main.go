@@ -14,6 +14,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/collector"
+	"github.com/vlstyle/jp-stock-dwh-platform/internal/edinet"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/jquants"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/store"
 )
@@ -25,11 +26,14 @@ commands:
   master    上場銘柄一覧を取得して保存する
   prices    株価四本値を取得して保存する (--from, --to: YYYY-MM-DD)
   financials  財務情報を開示日ごとに取得して保存する (--from, --to: YYYY-MM-DD)
+  edinet    EDINETの有価証券報告書から、現金・有価証券・有利子負債を取得して保存する (--from, --to: YYYY-MM-DD, --days)
 
 environment:
   DATABASE_URL           PostgreSQL接続文字列 (必須)
   JQUANTS_API_KEY        J-Quants APIキー (master, prices で必須)
   JQUANTS_RATE_PER_MIN   1分あたりのリクエスト数 (既定: 5 = Freeプラン)
+  EDINET_API_KEY         EDINET APIキー (edinet で必須)
+  EDINET_INTERVAL_MS     EDINETへのリクエスト間隔 (ミリ秒。既定: 1000)
 `
 
 func main() {
@@ -62,9 +66,14 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fromStr := fs.String("from", "", "取得開始日 YYYY-MM-DD (prices・financials のみ。既定: prices はDBの最新日の翌日、financials は最新開示日)")
 	toStr := fs.String("to", "", "取得終了日 YYYY-MM-DD (prices・financials のみ。既定: 今日(JST)から--lag-days日前)")
+	days := fs.Int("days", 7, "edinet で --from 未指定時に、--to から遡る日数")
 	lagDays := fs.Int("lag-days", 0, "--to 未指定時に今日から遅らせる日数 (Freeプランのデータ遅延に合わせる。例: 84)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	if cmd == "edinet" {
+		return runEdinet(ctx, log, dbURL, *fromStr, *toStr, *days)
 	}
 
 	apiKey := os.Getenv("JQUANTS_API_KEY")
@@ -118,6 +127,47 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("unknown command: %s", cmd)
 	}
+}
+
+func runEdinet(ctx context.Context, log *slog.Logger, dbURL, fromStr, toStr string, days int) error {
+	apiKey := os.Getenv("EDINET_API_KEY")
+	if apiKey == "" {
+		return errors.New("EDINET_API_KEY is required")
+	}
+	interval := time.Second
+	if v := os.Getenv("EDINET_INTERVAL_MS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return fmt.Errorf("invalid EDINET_INTERVAL_MS: %q", v)
+		}
+		interval = time.Duration(n) * time.Millisecond
+	}
+	from, err := parseDate(fromStr)
+	if err != nil {
+		return err
+	}
+	to, err := parseDate(toStr)
+	if err != nil {
+		return err
+	}
+	if to.IsZero() {
+		to = todayJST()
+	}
+	if from.IsZero() {
+		if days < 0 {
+			return errors.New("--days must be >= 0")
+		}
+		from = to.AddDate(0, 0, -days)
+	}
+
+	st, err := store.Open(ctx, dbURL)
+	if err != nil {
+		return err
+	}
+	defer st.Close(context.WithoutCancel(ctx))
+
+	c := &collector.EdinetCollector{Source: edinet.New(apiKey, interval), Sink: st, Log: log}
+	return c.CollectAnnualReports(ctx, from, to)
 }
 
 func parseDate(s string) (time.Time, error) {

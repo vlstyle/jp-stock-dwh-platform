@@ -12,6 +12,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/vlstyle/jp-stock-dwh-platform/internal/edinet"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/jquants"
 	"github.com/vlstyle/jp-stock-dwh-platform/migrations"
 )
@@ -226,4 +227,56 @@ func (s *Store) LatestFinancialDate(ctx context.Context) (time.Time, bool, error
 		return time.Time{}, false, nil
 	}
 	return *d, true, nil
+}
+
+// ExistingEdinetDocs は、ids のうち、保存済みの書類IDの集合を返す。
+func (s *Store) ExistingEdinetDocs(ctx context.Context, ids []string) (map[string]bool, error) {
+	rows, err := s.conn.Query(ctx, `SELECT doc_id FROM edinet_documents WHERE doc_id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	found := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		found[id] = true
+	}
+	return found, rows.Err()
+}
+
+const upsertEdinetDocument = `
+INSERT INTO edinet_documents (doc_id, code, filer_name, doc_type_code, period_end, submit_date, accounting_std, scope)
+VALUES ($1, $2, $3, $4, NULLIF($5::text, '')::date, $6, NULLIF($7, ''), $8)
+ON CONFLICT (doc_id) DO UPDATE SET
+    code = EXCLUDED.code, filer_name = EXCLUDED.filer_name, doc_type_code = EXCLUDED.doc_type_code,
+    period_end = EXCLUDED.period_end, submit_date = EXCLUDED.submit_date,
+    accounting_std = EXCLUDED.accounting_std, scope = EXCLUDED.scope, updated_at = now()`
+
+// UpsertEdinetDocument は書類と、その項目を、1トランザクションで保存する。
+func (s *Store) UpsertEdinetDocument(ctx context.Context, d edinet.Document, submitDate time.Time, r edinet.Report) error {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// EDINETの証券コードは5桁（J-Quantsの銘柄コードと同じ）。
+	if _, err := tx.Exec(ctx, upsertEdinetDocument, d.DocID, d.SecCode, d.FilerName, d.DocTypeCode,
+		d.PeriodEnd, submitDate, r.AccountingStd, r.Scope); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM edinet_facts WHERE doc_id = $1`, d.DocID); err != nil {
+		return err
+	}
+	b := &pgx.Batch{}
+	for elem, v := range r.Facts {
+		b.Queue(`INSERT INTO edinet_facts (doc_id, element_id, value) VALUES ($1, $2, $3::numeric)`, d.DocID, elem, v)
+	}
+	if err := tx.SendBatch(ctx, b).Close(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

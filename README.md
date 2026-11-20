@@ -47,7 +47,7 @@ go run ./cmd/collector edinet --days 7                              # EDINETの�
 
 ## ビュー
 
-`valuation`: 銘柄ごとの最新の株価日を基準にした割安度指標（`pbr`、`per`、`f_per`(予想PER)、`f_dividend_yield`、`eq_ar`、`roe`、`cfo`、`cash_eq`(現金及び現金同等物)、`market_cap`(時価総額)、`cash_to_mcap`(現金/時価総額)など）。分析側はこのビューを入口にする。
+`valuation`: 銘柄ごとの最新の株価日を基準にした割安度指標（`pbr`、`per`、`f_per`(予想PER)、`f_dividend_yield`、`eq_ar`、`roe`、`cfo`、`cash_eq`(現金及び現金同等物)、`market_cap`(時価総額)、`cash_to_mcap`(現金/時価総額)、`net_cash`(ネットキャッシュ)、`net_cash_to_mcap`(ネットキャッシュ/時価総額)など）。分析側はこのビューを入口にする。
 
 - 対象は、全体の最新株価日から7日以内に株価がある銘柄（上場廃止などで古い株価しかない銘柄は含めない）
 - 財務は、株価日以前に開示された最新のものを使う（`bps`・`f_eps`などは項目ごとに最新の値がある開示を選ぶ）
@@ -55,6 +55,8 @@ go run ./cmd/collector edinet --days 7                              # EDINETの�
 - EPS・BPS・配当は、開示後の株式分割・併合を`split_factor()`（株価の調整係数の累積）で現在の株数に換算する
 - 値が0以下のEPS・BPSの銘柄は、`per`・`pbr`をNULLにする
 - 連結決算の項目を使う（非連結のみ提出の企業は、J-Quantsが個別の値を入れる）
+
+`net_cash`は、銘柄ごとの最新の有価証券報告書（`edinet_balance`ビュー）から、現金（現金及び預金。無ければ現金同等物）＋有価証券＋投資有価証券×70%−有利子負債（短期・長期借入金、社債、CP、新株予約権付社債。IFRSは社債及び借入金）で算出する。リース債務は含めない。銀行・証券の科目を持つ会社は、`net_cash`がNULL。`net_cash_ex_inv`は投資有価証券を含めない値。決算期末から有報提出までの、最大約1年の遅れがあり、`balance_period_end`で確認できる。
 
 ## テスト
 

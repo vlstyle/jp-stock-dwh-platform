@@ -226,3 +226,93 @@ func TestEdinetDocumentUpsert(t *testing.T) {
 		t.Errorf("existing = %v, err = %v", got, err)
 	}
 }
+
+func TestNetCashInValuation(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	if err := Migrate(ctx, url); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if _, err := s.conn.Exec(ctx, `TRUNCATE prices, listed_info, financials, edinet_documents CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+
+	f := func(v float64) *float64 { return &v }
+	codes := []string{"86970", "86980", "86990"}
+	for _, code := range codes {
+		if err := s.UpsertListedInfo(ctx, []jquants.ListedInfo{{Date: "2026-06-01", Code: code, CoName: code}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UpsertPrices(ctx, []jquants.DailyBar{{Date: "2026-06-01", Code: code, C: f(10), AdjFactor: f(1)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UpsertFinancials(ctx, []jquants.Financial{
+			{"Code": code, "DiscNo": "1", "DiscDate": "2026-05-01", "CurPerType": "FY", "ShOutFY": "100", "TrShFY": "0"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	day := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
+	save := func(id, code, period string, facts map[string]string) {
+		t.Helper()
+		doc := edinet.Document{DocID: id, SecCode: code, DocTypeCode: "120", PeriodEnd: period}
+		if err := s.UpsertEdinetDocument(ctx, doc, day, edinet.Report{Scope: edinet.ScopeConsolidated, Facts: facts}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 86970: 最新の期の書類だけを使う（前期の書類は無視）。
+	save("S1", "86970", "2025-03-31", map[string]string{"jppfs_cor:CashAndDeposits": "9999"})
+	save("S2", "86970", "2026-03-31", map[string]string{
+		"jppfs_cor:CashAndDeposits": "1000", "jppfs_cor:ShortTermInvestmentSecurities": "100",
+		"jppfs_cor:InvestmentSecurities": "200", "jppfs_cor:ShortTermLoansPayable": "300",
+		"jppfs_cor:BondsPayable": "50", "jppfs_cor:LongTermLoansPayable": "150",
+	})
+	// 86980: 金融業の科目を持つ会社は、net_cash を出さない。
+	save("S3", "86980", "2026-03-31", map[string]string{
+		"jppfs_cor:CashAndDeposits": "1000", "jppfs_cor:CashAndDueFromBanksAssetsBNK": "5000",
+	})
+	// 86990: IFRSで、現金のみ、負債なし。
+	save("S4", "86990", "2026-03-31", map[string]string{"jpigp_cor:CashAndCashEquivalentsIFRS": "400"})
+
+	type row struct {
+		cash, debt, netCash, exInv, toMcap *float64
+	}
+	get := func(code string) row {
+		var r row
+		if err := s.conn.QueryRow(ctx, `
+			SELECT bs_cash::float8, interest_bearing_debt::float8, net_cash::float8, net_cash_ex_inv::float8, net_cash_to_mcap::float8
+			FROM valuation WHERE code = $1`, code).Scan(&r.cash, &r.debt, &r.netCash, &r.exInv, &r.toMcap); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	eq := func(name string, got *float64, want float64) {
+		t.Helper()
+		if got == nil || *got-want > 1e-9 || want-*got > 1e-9 {
+			t.Errorf("%s = %v, want %v", name, got, want)
+		}
+	}
+
+	r := get("86970")
+	eq("cash", r.cash, 1000)
+	eq("debt", r.debt, 500)
+	eq("net_cash", r.netCash, 740) // 1000 + 100 + 200*0.7 - 500
+	eq("net_cash_ex_inv", r.exInv, 600)
+	eq("net_cash_to_mcap", r.toMcap, 0.74) // 時価総額 = 10 * 100
+
+	if r := get("86980"); r.netCash != nil {
+		t.Errorf("financial company net_cash = %v, want NULL", *r.netCash)
+	}
+	r = get("86990")
+	eq("ifrs cash", r.cash, 400)
+	eq("ifrs net_cash", r.netCash, 400)
+}

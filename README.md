@@ -42,7 +42,7 @@ go run ./cmd/collector edinet --days 7                              # EDINETの�
 | `listed_info` | 上場銘柄一覧（`/equities/master`） | `(code, date)` |
 | `prices` | 株価四本値（`/equities/bars/daily`） | `(code, date)` |
 | `edinet_documents` | EDINETの有価証券報告書のメタデータ（銘柄コード、決算期末、会計基準、連結/個別） | `doc_id` |
-| `edinet_facts` | 上記の書類の、当期末の現金・有価証券・有利子負債に関する項目（円） | `(doc_id, element_id)` |
+| `edinet_facts` | 上記の書類の、当期末の現金・有価証券・有利子負債と、当期の損益計算書・CFの主要科目（日本基準のみ）に関する項目（円） | `(doc_id, element_id)` |
 | `financials` | 財務情報（`/fins/summary`）。主要な項目は列に、全項目は`raw`(jsonb)に保存。訂正開示も別レコード | `(code, disc_no)` |
 
 ## ビュー
@@ -69,3 +69,7 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/stock_test go test ./...
 ## イメージ
 
 `main`へのpushで、`ghcr.io/vlstyle/jp-stock-dwh-platform`に`<commit sha>`と`latest`のタグでpushする。
+
+`cost_structure`: 銘柄ごとの最新の有価証券報告書（日本基準のみ）から、固定費・変動費を近似したビュー。変動費＝売上原価−売上原価に含まれる減価償却費、固定費＝販管費＋売上原価に含まれる減価償却費（減価償却費はCF計算書の値から、販管費注記の分を引く）。`variable_cost_ratio`・`fixed_cost_ratio`（対売上高）、`bep_sales`（損益分岐点売上高）、`bep_ratio`（損益分岐点売上高÷売上高。低いほど、売上が減っても赤字になりにくい）を持つ。必要な科目（売上高・売上原価・販管費・減価償却費）のどれかが無い会社は含まれない。IFRS・米国基準は対象外。
+- 変動費は、売上原価の人件費・外注費・賃借料などの固定的な費用を含むため、過大になる。固定費・損益分岐点は、過小になる方向の近似
+- 既存の書類は、取り込む科目を増やす前に保存したもので、科目が無い。`collector edinet --refetch --codes <コード> --from … --to …`で、提出日を指定して取得し直す

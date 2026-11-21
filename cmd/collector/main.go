@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -26,7 +27,7 @@ commands:
   master    上場銘柄一覧を取得して保存する
   prices    株価四本値を取得して保存する (--from, --to: YYYY-MM-DD)
   financials  財務情報を開示日ごとに取得して保存する (--from, --to: YYYY-MM-DD)
-  edinet    EDINETの有価証券報告書から、現金・有価証券・有利子負債を取得して保存する (--from, --to: YYYY-MM-DD, --days)
+  edinet    EDINETの有価証券報告書から、現金・有価証券・有利子負債と、損益・CFの主要科目を取得して保存する (--from, --to: YYYY-MM-DD, --days, --refetch, --codes)
 
 environment:
   DATABASE_URL           PostgreSQL接続文字列 (必須)
@@ -67,13 +68,15 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 	fromStr := fs.String("from", "", "取得開始日 YYYY-MM-DD (prices・financials のみ。既定: prices はDBの最新日の翌日、financials は最新開示日)")
 	toStr := fs.String("to", "", "取得終了日 YYYY-MM-DD (prices・financials のみ。既定: 今日(JST)から--lag-days日前)")
 	days := fs.Int("days", 7, "edinet で --from 未指定時に、--to から遡る日数")
+	refetch := fs.Bool("refetch", false, "edinet で、保存済みの書類も取得し直す")
+	codes := fs.String("codes", "", "edinet で、対象を絞る証券コード（5桁、カンマ区切り）")
 	lagDays := fs.Int("lag-days", 0, "--to 未指定時に今日から遅らせる日数 (Freeプランのデータ遅延に合わせる。例: 84)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	if cmd == "edinet" {
-		return runEdinet(ctx, log, dbURL, *fromStr, *toStr, *days)
+		return runEdinet(ctx, log, dbURL, *fromStr, *toStr, *days, *refetch, *codes)
 	}
 
 	apiKey := os.Getenv("JQUANTS_API_KEY")
@@ -129,7 +132,7 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 	}
 }
 
-func runEdinet(ctx context.Context, log *slog.Logger, dbURL, fromStr, toStr string, days int) error {
+func runEdinet(ctx context.Context, log *slog.Logger, dbURL, fromStr, toStr string, days int, refetch bool, codes string) error {
 	apiKey := os.Getenv("EDINET_API_KEY")
 	if apiKey == "" {
 		return errors.New("EDINET_API_KEY is required")
@@ -166,7 +169,13 @@ func runEdinet(ctx context.Context, log *slog.Logger, dbURL, fromStr, toStr stri
 	}
 	defer st.Close(context.WithoutCancel(ctx))
 
-	c := &collector.EdinetCollector{Source: edinet.New(apiKey, interval), Sink: st, Log: log}
+	c := &collector.EdinetCollector{Source: edinet.New(apiKey, interval), Sink: st, Log: log, Refetch: refetch}
+	if codes != "" {
+		c.Codes = map[string]bool{}
+		for _, code := range strings.Split(codes, ",") {
+			c.Codes[strings.TrimSpace(code)] = true
+		}
+	}
 	return c.CollectAnnualReports(ctx, from, to)
 }
 

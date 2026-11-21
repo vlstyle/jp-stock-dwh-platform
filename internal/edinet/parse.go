@@ -18,7 +18,7 @@ const (
 	ScopeNonConsolidated = "non_consolidated"
 )
 
-// Report は、有価証券報告書の当期末の貸借対照表から取り出した項目。
+// Report は、有価証券報告書の当期末の貸借対照表と、当期の損益計算書・キャッシュフロー計算書から取り出した項目。
 type Report struct {
 	AccountingStd string            // "Japan GAAP", "IFRS" など
 	Scope         string            // 連結があれば連結、無ければ個別
@@ -29,9 +29,14 @@ type Report struct {
 // 必要な科目の選別はビュー側で行うので、ここでは関連する名前をやや広めに保存する。
 var elementRE = regexp.MustCompile(`^(jppfs_cor|jpigp_cor):\w*(Loans|Bonds|Borrowings|CommercialPaper|Securities|Cash)`)
 
+// 固定費・変動費の近似に使う、当期の損益計算書・キャッシュフロー計算書・販管費注記の要素（日本基準のみ）。
+var durationElementRE = regexp.MustCompile(`^jppfs_cor:(NetSales|OperatingRevenue1|CostOfSales|GrossProfit|SellingGeneralAndAdministrativeExpenses|OperatingIncome|DepreciationAndAmortizationOpeCF|DepreciationSGA|DepreciationAndAmortizationSGA)$`)
+
 const (
-	ctxConsolidated    = "CurrentYearInstant"
-	ctxNonConsolidated = "CurrentYearInstant_NonConsolidatedMember"
+	ctxConsolidated            = "CurrentYearInstant"
+	ctxNonConsolidated         = "CurrentYearInstant_NonConsolidatedMember"
+	ctxDurationConsolidated    = "CurrentYearDuration"
+	ctxDurationNonConsolidated = "CurrentYearDuration_NonConsolidatedMember"
 )
 
 var integerRE = regexp.MustCompile(`^-?\d+$`)
@@ -90,14 +95,26 @@ func ParseReport(zipData []byte) (Report, error) {
 			rep.AccountingStd = value
 			continue
 		}
-		if !elementRE.MatchString(elem) || !integerRE.MatchString(value) {
+		if !integerRE.MatchString(value) {
 			continue
 		}
 		switch context {
 		case ctxConsolidated:
-			consolidated[elem] = value
+			if elementRE.MatchString(elem) {
+				consolidated[elem] = value
+			}
 		case ctxNonConsolidated:
-			nonConsolidated[elem] = value
+			if elementRE.MatchString(elem) {
+				nonConsolidated[elem] = value
+			}
+		case ctxDurationConsolidated:
+			if durationElementRE.MatchString(elem) {
+				consolidated[elem] = value
+			}
+		case ctxDurationNonConsolidated:
+			if durationElementRE.MatchString(elem) {
+				nonConsolidated[elem] = value
+			}
 		}
 	}
 

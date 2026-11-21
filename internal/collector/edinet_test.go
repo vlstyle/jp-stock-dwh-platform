@@ -92,3 +92,20 @@ func TestCollectAnnualReportsContinuesAfterFailure(t *testing.T) {
 		t.Errorf("saved = %v", sink.saved)
 	}
 }
+
+func TestCollectAnnualReportsRefetchAndCodes(t *testing.T) {
+	src := &fakeEdinetSource{docs: map[string][]edinet.Document{
+		"2026-06-26": {doc("A", "62480", "120"), doc("D", "72010", "120"), doc("E", "99990", "120")},
+	}}
+	sink := &fakeEdinetSink{existing: map[string]bool{"A": true, "D": true}}
+	c := newEdinetCollector(src, sink)
+	c.Refetch = true
+	c.Codes = map[string]bool{"62480": true, "72010": true}
+
+	if err := c.CollectAnnualReports(context.Background(), day("2026-06-26"), day("2026-06-26")); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.saved) != 2 || sink.saved[0] != "A" || sink.saved[1] != "D" {
+		t.Errorf("saved = %v", sink.saved)
+	}
+}

@@ -24,10 +24,14 @@ type EdinetCollector struct {
 	Source EdinetSource
 	Sink   EdinetSink
 	Log    *slog.Logger
+	// Refetch が真なら、保存済みの書類も取得し直す（取り込む項目を増やしたときの再取得用）。
+	Refetch bool
+	// Codes が空でなければ、その証券コード（5桁）の書類だけを対象にする。
+	Codes map[string]bool
 }
 
 // CollectAnnualReports は from から to までの平日に提出された、上場会社の有価証券報告書を取得して保存する。
-// 保存済みの書類は取得しない。1件の取得に失敗しても続行し、最後にまとめてエラーを返す。
+// 保存済みの書類は、Refetch でなければ取得しない。1件の取得に失敗しても続行し、最後にまとめてエラーを返す。
 func (c *EdinetCollector) CollectAnnualReports(ctx context.Context, from, to time.Time) error {
 	var errs []error
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
@@ -43,7 +47,7 @@ func (c *EdinetCollector) CollectAnnualReports(ctx context.Context, from, to tim
 		var ids []string
 		for _, doc := range docs {
 			if doc.DocTypeCode == edinet.DocTypeAnnualReport && doc.SecCode != "" &&
-				doc.WithdrawalStatus == "0" && doc.CSVFlag == "1" {
+				doc.WithdrawalStatus == "0" && doc.CSVFlag == "1" && (len(c.Codes) == 0 || c.Codes[doc.SecCode]) {
 				targets = append(targets, doc)
 				ids = append(ids, doc.DocID)
 			}
@@ -51,9 +55,12 @@ func (c *EdinetCollector) CollectAnnualReports(ctx context.Context, from, to tim
 		if len(targets) == 0 {
 			continue
 		}
-		existing, err := c.Sink.ExistingEdinetDocs(ctx, ids)
-		if err != nil {
-			return err
+		existing := map[string]bool{}
+		if !c.Refetch {
+			var err error
+			if existing, err = c.Sink.ExistingEdinetDocs(ctx, ids); err != nil {
+				return err
+			}
 		}
 
 		saved := 0

@@ -74,6 +74,36 @@ func TestParseReportPrefersConsolidated(t *testing.T) {
 	}
 }
 
+func TestParseReportTakesCurrentYearDuration(t *testing.T) {
+	csv := header +
+		row("jppfs_cor:NetSales", "CurrentYearDuration", "5000") +
+		row("jppfs_cor:NetSales", "Prior1YearDuration", "4000") +
+		row("jppfs_cor:NetSales", "CurrentYearDuration_NonConsolidatedMember", "900") +
+		row("jppfs_cor:CostOfSales", "CurrentYearDuration", "3000") +
+		row("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "200") +
+		row("jppfs_cor:IncomeTaxes", "CurrentYearDuration", "10") +
+		row("jppfs_cor:CostOfSales", "CurrentYearDuration_SomeSegmentMember", "1") +
+		row("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000")
+	rep, err := ParseReport(makeZip(t, csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"jppfs_cor:NetSales":                         "5000",
+		"jppfs_cor:CostOfSales":                      "3000",
+		"jppfs_cor:DepreciationAndAmortizationOpeCF": "200",
+		"jppfs_cor:CashAndDeposits":                  "1000",
+	}
+	if rep.Scope != ScopeConsolidated || len(rep.Facts) != len(want) {
+		t.Fatalf("report = %+v", rep)
+	}
+	for k, v := range want {
+		if rep.Facts[k] != v {
+			t.Errorf("%s = %q, want %q", k, rep.Facts[k], v)
+		}
+	}
+}
+
 func TestParseReportFallsBackToNonConsolidated(t *testing.T) {
 	csv := header +
 		row("jppfs_cor:CashAndDeposits", "CurrentYearInstant_NonConsolidatedMember", "300") +

@@ -29,6 +29,8 @@ go run ./cmd/collector edinet --days 7                              # EDINETの�
 | `JQUANTS_API_KEY` | J-Quants APIキー（`master`・`prices`で必須） |
 | `EDINET_API_KEY` | EDINETのAPIキー（`edinet`で必須） |
 | `EDINET_INTERVAL_MS` | EDINETへのリクエスト間隔(ミリ秒)。既定は1000 |
+| `ZABBIX_SERVER` | 設定すると、`master`・`prices`・`financials`・`edinet`の完了時に、Zabbixトラッパー(`host:port`)へ成否を送信する。キーは`cronjob.status[<コマンド>]`で、成功は1、失敗は0。送信に失敗してもジョブの結果には影響しない |
+| `ZABBIX_HOST` | Zabbixのホスト名。既定は`jp-stock-dwh` |
 | `JQUANTS_RATE_PER_MIN` | 1分あたりのリクエスト数。既定は5（Freeプラン）。プランに合わせて上げる |
 
 `prices`は平日を1日ずつ全銘柄分取得する。`financials`は平日を開示日ごとに全銘柄分取得し（`--from`省略時はDBの最新開示日から）、財務情報APIは他のAPIとは別枠の60リクエスト/分で動く。レート制限（429）を受けた場合は待機して再試行する。

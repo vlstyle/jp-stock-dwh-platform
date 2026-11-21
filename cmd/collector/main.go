@@ -15,6 +15,7 @@ import (
 
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/collector"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/edinet"
+	"github.com/vlstyle/jp-stock-dwh-platform/internal/heartbeat"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/jquants"
 	"github.com/vlstyle/jp-stock-dwh-platform/internal/store"
 )
@@ -34,6 +35,8 @@ environment:
   JQUANTS_RATE_PER_MIN   1分あたりのリクエスト数 (既定: 5 = Freeプラン)
   EDINET_API_KEY         EDINET APIキー (edinet で必須)
   EDINET_INTERVAL_MS     EDINETへのリクエスト間隔 (ミリ秒。既定: 1000)
+  ZABBIX_SERVER          設定すると、完了時にZabbixトラッパー(host:port)へ成否を送信する
+  ZABBIX_HOST            Zabbixのホスト名 (既定: jp-stock-dwh)
 `
 
 func main() {
@@ -41,9 +44,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, log, os.Args[1:]); err != nil {
+	err := run(ctx, log, os.Args[1:])
+	notify(context.WithoutCancel(ctx), log, os.Args[1:], err)
+	if err != nil {
 		log.Error("failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+// notify は、ZABBIX_SERVER が設定されている場合に、ジョブの成否を Zabbix に送る。送信の失敗はジョブの結果に影響させない。
+func notify(ctx context.Context, log *slog.Logger, args []string, runErr error) {
+	addr := os.Getenv("ZABBIX_SERVER")
+	if addr == "" || len(args) == 0 || args[0] == "migrate" {
+		return
+	}
+	host := os.Getenv("ZABBIX_HOST")
+	if host == "" {
+		host = "jp-stock-dwh"
+	}
+	if err := heartbeat.Send(ctx, addr, host, args[0], runErr == nil); err != nil {
+		log.Warn("zabbix heartbeat failed", "error", err)
 	}
 }
 

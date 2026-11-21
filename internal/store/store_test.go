@@ -246,9 +246,13 @@ func TestNetCashInValuation(t *testing.T) {
 	}
 
 	f := func(v float64) *float64 { return &v }
-	codes := []string{"86970", "86980", "86990"}
+	codes := []string{"86970", "86980", "86990", "87000"}
 	for _, code := range codes {
-		if err := s.UpsertListedInfo(ctx, []jquants.ListedInfo{{Date: "2026-06-01", Code: code, CoName: code}}); err != nil {
+		s33 := "電気機器"
+		if code == "87000" {
+			s33 = "証券･商品先物取引業"
+		}
+		if err := s.UpsertListedInfo(ctx, []jquants.ListedInfo{{Date: "2026-06-01", Code: code, CoName: code, S33Nm: s33}}); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.UpsertPrices(ctx, []jquants.DailyBar{{Date: "2026-06-01", Code: code, C: f(10), AdjFactor: f(1)}}); err != nil {
@@ -282,6 +286,8 @@ func TestNetCashInValuation(t *testing.T) {
 	})
 	// 86990: IFRSで、現金のみ、負債なし。
 	save("S4", "86990", "2026-03-31", map[string]string{"jpigp_cor:CashAndCashEquivalentsIFRS": "400"})
+	// 87000: 金融業の科目は無いが、業種が証券業の会社も、net_cash を出さない。
+	save("S5", "87000", "2026-03-31", map[string]string{"jpigp_cor:CashAndCashEquivalentsIFRS": "400"})
 
 	type row struct {
 		cash, debt, netCash, exInv, toMcap *float64
@@ -311,6 +317,9 @@ func TestNetCashInValuation(t *testing.T) {
 
 	if r := get("86980"); r.netCash != nil {
 		t.Errorf("financial company net_cash = %v, want NULL", *r.netCash)
+	}
+	if r := get("87000"); r.netCash != nil || r.exInv != nil || r.toMcap != nil {
+		t.Errorf("financial sector net_cash = %v / %v / %v, want NULL", r.netCash, r.exInv, r.toMcap)
 	}
 	r = get("86990")
 	eq("ifrs cash", r.cash, 400)

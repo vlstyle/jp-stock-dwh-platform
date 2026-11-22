@@ -42,7 +42,7 @@ go run ./cmd/collector edinet --days 7                              # EDINETの�
 | `listed_info` | 上場銘柄一覧（`/equities/master`） | `(code, date)` |
 | `prices` | 株価四本値（`/equities/bars/daily`） | `(code, date)` |
 | `edinet_documents` | EDINETの有価証券報告書のメタデータ（銘柄コード、決算期末、会計基準、連結/個別） | `doc_id` |
-| `edinet_facts` | 上記の書類の、当期末の現金・有価証券・有利子負債と、当期の損益計算書・CFの主要科目（日本基準のみ）に関する項目（円） | `(doc_id, element_id)` |
+| `edinet_facts` | 上記の書類の、当期末の現金・有価証券・有利子負債と、当期の損益計算書・CF・貸借対照表の主要科目（日本基準のみ。経常利益・当期利益・営業CF・投資CF・設備投資・配当支払・自己株式の取得、流動資産・売掛金・棚卸資産・有形固定資産・買掛金・負債・純資産など）に関する項目（円） | `(doc_id, element_id)` |
 | `financials` | 財務情報（`/fins/summary`）。主要な項目は列に、全項目は`raw`(jsonb)に保存。訂正開示も別レコード | `(code, disc_no)` |
 
 ## ビュー

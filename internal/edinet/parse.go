@@ -29,8 +29,32 @@ type Report struct {
 // 必要な科目の選別はビュー側で行うので、ここでは関連する名前をやや広めに保存する。
 var elementRE = regexp.MustCompile(`^(jppfs_cor|jpigp_cor):\w*(Loans|Bonds|Borrowings|CommercialPaper|Securities|Cash)`)
 
-// 固定費・変動費の近似に使う、当期の損益計算書・キャッシュフロー計算書・販管費注記の要素（日本基準のみ）。
-var durationElementRE = regexp.MustCompile(`^jppfs_cor:(NetSales|OperatingRevenue1|CostOfSales|GrossProfit|SellingGeneralAndAdministrativeExpenses|OperatingIncome|DepreciationAndAmortizationOpeCF|DepreciationSGA|DepreciationAndAmortizationSGA)$`)
+// 当期の損益計算書・キャッシュフロー計算書・販管費注記の要素（日本基準のみ）。
+// 固定費・変動費の近似（cost_structure）と、分析レポートの要約財務諸表・株主還元に使う。
+var durationElementRE = regexp.MustCompile(`^jppfs_cor:(` + strings.Join([]string{
+	// 損益計算書
+	"NetSales", "OperatingRevenue1", "OperatingRevenue2", "CostOfSales", "GrossProfit", "SellingGeneralAndAdministrativeExpenses",
+	"OperatingIncome", "NonOperatingIncome", "NonOperatingExpenses", "OrdinaryIncome", "ExtraordinaryIncome", "ExtraordinaryLoss",
+	"IncomeBeforeIncomeTaxes", "IncomeTaxes", "ProfitLoss", "ProfitLossAttributableToOwnersOfParent", "InterestExpensesNOE",
+	// 販管費の注記
+	"DepreciationSGA", "DepreciationAndAmortizationSGA",
+	// キャッシュフロー計算書（設備投資、株主還元を含む）
+	"DepreciationAndAmortizationOpeCF", "NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInInvestingActivities",
+	"NetCashProvidedByUsedInFinancingActivities", "PurchaseOfPropertyPlantAndEquipmentInvCF", "PurchaseOfIntangibleAssetsInvCF",
+	"DividendsPaidFinCF", "CashDividendsPaidFinCF", "PurchaseOfTreasuryStockFinCF", "ProceedsFromIssuanceOfSharesFinCF",
+}, "|") + `)$`)
+
+// 当期末の貸借対照表の要素（日本基準のみ）。分析レポートの要約財務諸表と、資産バリュー（清算価値）に使う。
+// 現金・有価証券・有利子負債は、上のelementREで取る。
+var instantStatementRE = regexp.MustCompile(`^jppfs_cor:(` + strings.Join([]string{
+	"CurrentAssets", "NotesAndAccountsReceivableTrade", "NotesAndAccountsReceivableTradeAndContractAssets", "AccountsReceivableTrade",
+	"NotesReceivableTrade", "ElectronicallyRecordedMonetaryClaimsOperatingCA", "ContractAssets",
+	"Inventories", "Merchandise", "FinishedGoods", "MerchandiseAndFinishedGoods", "WorkInProcess", "RawMaterialsAndSupplies",
+	"NoncurrentAssets", "PropertyPlantAndEquipment", "IntangibleAssets", "InvestmentsAndOtherAssets", "Assets",
+	"CurrentLiabilities", "NotesAndAccountsPayableTrade", "AccountsPayableTrade", "NotesPayableTrade",
+	"ElectronicallyRecordedObligationsOperatingCL", "NoncurrentLiabilities", "Liabilities",
+	"ShareholdersEquity", "NetAssets", "LiabilitiesAndNetAssets",
+}, "|") + `)$`)
 
 const (
 	ctxConsolidated            = "CurrentYearInstant"
@@ -100,11 +124,11 @@ func ParseReport(zipData []byte) (Report, error) {
 		}
 		switch context {
 		case ctxConsolidated:
-			if elementRE.MatchString(elem) {
+			if elementRE.MatchString(elem) || instantStatementRE.MatchString(elem) {
 				consolidated[elem] = value
 			}
 		case ctxNonConsolidated:
-			if elementRE.MatchString(elem) {
+			if elementRE.MatchString(elem) || instantStatementRE.MatchString(elem) {
 				nonConsolidated[elem] = value
 			}
 		case ctxDurationConsolidated:

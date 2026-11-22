@@ -303,3 +303,36 @@ func (s *Store) SnapshotSectorStats(ctx context.Context) (time.Time, int64, erro
 	}
 	return date, tag.RowsAffected(), nil
 }
+
+// screeningColumns は、screening_liveとscreening_dailyに共通の、指標の列（snapshot_dateを除く）。
+const screeningColumns = `code, name, market, sector, price_date, close, market_cap, per, pbr, f_per, dividend_yield, roe, eq_ar,
+    net_cash_to_mcap, fy_end, fy_age_days, op_margin, np_margin, roa, sales_yoy, op_yoy, eps_yoy, sales_cagr_3y, psr, bep_ratio`
+
+// SnapshotScreening は、現在の銘柄ごとの指標（screening_live）を、最新の株価日の日付で保存する。
+// 同じ日付で再実行すると、その日付の行を、すべて置き換える（上場廃止などで、消えた銘柄が残らない）。
+func (s *Store) SnapshotScreening(ctx context.Context) (time.Time, int64, error) {
+	date, ok, err := s.LatestPriceDate(ctx)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	if !ok {
+		return time.Time{}, 0, errors.New("株価がありません")
+	}
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM screening_daily WHERE snapshot_date = $1`, date); err != nil {
+		return time.Time{}, 0, err
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO screening_daily (snapshot_date, `+screeningColumns+`)
+SELECT $1::date, `+screeningColumns+` FROM screening_live`, date)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return time.Time{}, 0, err
+	}
+	return date, tag.RowsAffected(), nil
+}

@@ -79,3 +79,6 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/stock_test go test ./...
 `sector_stats`: 東証33業種（と全体＝`'全体'`）ごとの、指標（`per`・`pbr`・`roe`・`op_margin`・`roa`・`sales_yoy`など）の分布の、**最新のスナップショット**。1行が「業種×指標」で、`n`（件数）・`p25`・`median`・`p75`・`snapshot_date`を持つ。対象は、`valuation`に含まれる銘柄で、値がNULLの銘柄は`n`に含まれない。
 - スナップショットは、`collector snapshot`が、`sector_stats_live`（現在の`valuation`から計算するビュー。十数秒かかる）の結果を、最新の株価日の日付で`sector_stats_daily`に保存する。同じ日付での再実行は、置き換える。業種ごとの推移は、`sector_stats_daily`に貯まる（過去分は、さかのぼって作れない）
 - 通常は、`sector_stats`を読む。`valuation`の更新後に`snapshot`を実行しないと、古い分布のまま
+
+`screening_live`・`screening_daily`・`screening`: スクリーニング用に、`valuation`・`annual_results`・`cost_structure`を、銘柄ごとの1行（`per`・`pbr`・`f_per`・`psr`・`roe`・`roa`・`op_margin`・`sales_cagr_3y`・`bep_ratio`・`fy_age_days`など）にまとめたもの。`screening_live`は、現在の値を計算するビュー（約1分かかる）。`screening_daily`は、`collector snapshot`が、最新の株価日の日付で保存する日次のスナップショット（同じ日付での再実行は置き換える）。`screening`は、最新のスナップショット。スクリーニングの結果と、前日との差分は、日ごとのスナップショットに条件を当てて、再現できる。
+- `screening_live`は、`valuation`をMATERIALIZEDで先に確定させている（結合の形によって、実行計画が悪くなり、数分以上かかることがあるため）

@@ -27,6 +27,7 @@ commands:
   master    上場銘柄一覧を取得して保存する
   prices    株価四本値を取得して保存する (--from, --to: YYYY-MM-DD)
   financials  財務情報を開示日ごとに取得して保存する (--from, --to: YYYY-MM-DD)
+  snapshot  業種ごとの指標の分布を、最新の株価日の日付で保存する (sector_stats_daily。J-Quants・EDINETのキーは不要)
   edinet    EDINETの有価証券報告書から、現金・有価証券・有利子負債と、損益・CFの主要科目を取得して保存する (--from, --to: YYYY-MM-DD, --days, --refetch, --codes)
 
 environment:
@@ -75,6 +76,9 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 
+	if cmd == "snapshot" {
+		return runSnapshot(ctx, log, dbURL)
+	}
 	if cmd == "edinet" {
 		return runEdinet(ctx, log, dbURL, *fromStr, *toStr, *days, *refetch, *codes)
 	}
@@ -130,6 +134,21 @@ func run(ctx context.Context, log *slog.Logger, args []string) error {
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("unknown command: %s", cmd)
 	}
+}
+
+func runSnapshot(ctx context.Context, log *slog.Logger, dbURL string) error {
+	st, err := store.Open(ctx, dbURL)
+	if err != nil {
+		return err
+	}
+	defer st.Close(context.WithoutCancel(ctx))
+
+	date, n, err := st.SnapshotSectorStats(ctx)
+	if err != nil {
+		return err
+	}
+	log.Info("sector stats snapshot saved", "snapshot_date", date.Format(collector.DateLayout), "rows", n)
+	return nil
 }
 
 func runEdinet(ctx context.Context, log *slog.Logger, dbURL, fromStr, toStr string, days int, refetch bool, codes string) error {

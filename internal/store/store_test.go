@@ -442,3 +442,114 @@ func TestSplitFactorUsesPartialIndex(t *testing.T) {
 		t.Error("split_factorのクエリが、prices_adj_events_idxを使っていません")
 	}
 }
+
+// 要約財務諸表（financial_statements）と、年度末の株価指標の推移（valuation_history）。
+func TestFinancialStatementsAndValuationHistory(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	if err := Migrate(ctx, url); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if _, err := s.conn.Exec(ctx, `TRUNCATE edinet_documents CASCADE; TRUNCATE prices, financials`); err != nil {
+		t.Fatal(err)
+	}
+
+	day := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
+	doc := edinet.Document{DocID: "S100FS01", SecCode: "11110", FilerName: "テスト", DocTypeCode: "120", PeriodEnd: "2026-03-31"}
+	rep := edinet.Report{AccountingStd: "Japan GAAP", Scope: edinet.ScopeConsolidated, Facts: map[string]string{
+		"jppfs_cor:CashAndDeposits": "1000", "jppfs_cor:ShortTermInvestmentSecurities": "100", "jppfs_cor:InvestmentSecurities": "200",
+		"jppfs_cor:NotesAndAccountsReceivableTradeAndContractAssets": "800",
+		"jppfs_cor:MerchandiseAndFinishedGoods":                      "300", "jppfs_cor:WorkInProcess": "50", // 棚卸資産の内訳だけが開示されている
+		"jppfs_cor:CurrentAssets": "2500", "jppfs_cor:PropertyPlantAndEquipment": "3000", "jppfs_cor:IntangibleAssets": "200",
+		"jppfs_cor:InvestmentsAndOtherAssets": "300", "jppfs_cor:Assets": "6000",
+		"jppfs_cor:AccountsPayableTrade": "400", "jppfs_cor:NotesPayableTrade": "100",
+		"jppfs_cor:ShortTermLoansPayable": "150", "jppfs_cor:CurrentPortionOfLongTermLoansPayable": "50", "jppfs_cor:LongTermLoansPayable": "700",
+		"jppfs_cor:CurrentLiabilities": "1250", "jppfs_cor:NoncurrentLiabilities": "1000", "jppfs_cor:Liabilities": "2250", "jppfs_cor:NetAssets": "3750",
+		"jppfs_cor:NetSales": "10000", "jppfs_cor:CostOfSales": "6000", "jppfs_cor:SellingGeneralAndAdministrativeExpenses": "3000",
+		"jppfs_cor:OperatingIncome": "1000", "jppfs_cor:OrdinaryIncome": "1050", "jppfs_cor:ProfitLossAttributableToOwnersOfParent": "700",
+		"jppfs_cor:NetCashProvidedByUsedInOperatingActivities": "1200", "jppfs_cor:NetCashProvidedByUsedInInvestingActivities": "-500",
+		"jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF": "-400", "jppfs_cor:PurchaseOfIntangibleAssetsInvCF": "-50",
+		"jppfs_cor:DepreciationAndAmortizationOpeCF": "300", "jppfs_cor:DividendsPaidFinCF": "-210", "jppfs_cor:PurchaseOfTreasuryStockFinCF": "-70",
+	}}
+	if err := s.UpsertEdinetDocument(ctx, doc, day, rep); err != nil {
+		t.Fatal(err)
+	}
+	// IFRSの書類は、含まれない。
+	if err := s.UpsertEdinetDocument(ctx, edinet.Document{DocID: "S100FS02", SecCode: "22220", DocTypeCode: "120", PeriodEnd: "2026-03-31"}, day,
+		edinet.Report{AccountingStd: "IFRS", Scope: edinet.ScopeConsolidated, Facts: map[string]string{"jppfs_cor:Assets": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	type fs struct {
+		Receivables, Inventories, ShortTermLoans, Payables, Capex, Fcf, Debt, NetCash    float64
+		CostRatio, CurrentRatio, EquityRatio, Roic, Accrual, Payout, TotalReturn, Ebitda float64
+	}
+	var v fs
+	var n int
+	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM financial_statements`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("financial_statements rows = %d (IFRSは含めない), err = %v", n, err)
+	}
+	err = s.conn.QueryRow(ctx, `
+		SELECT receivables::float8, inventories::float8, short_term_loans::float8, payables::float8, capex::float8, fcf::float8,
+		       interest_bearing_debt::float8, net_cash::float8, cost_ratio::float8, current_ratio::float8, equity_ratio::float8,
+		       roic::float8, accrual_ratio::float8, payout_ratio::float8, total_return_ratio::float8, ebitda::float8
+		FROM financial_statements WHERE code = '11110' AND fy_end = '2026-03-31'`).
+		Scan(&v.Receivables, &v.Inventories, &v.ShortTermLoans, &v.Payables, &v.Capex, &v.Fcf, &v.Debt, &v.NetCash,
+			&v.CostRatio, &v.CurrentRatio, &v.EquityRatio, &v.Roic, &v.Accrual, &v.Payout, &v.TotalReturn, &v.Ebitda)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := map[string][2]float64{
+		"receivables": {v.Receivables, 800}, "inventories": {v.Inventories, 350}, "short_term_loans": {v.ShortTermLoans, 200},
+		"payables": {v.Payables, 500}, "capex": {v.Capex, 450}, "fcf": {v.Fcf, 750},
+		"interest_bearing_debt": {v.Debt, 900},                           // 150+50+700
+		"net_cash":              {v.NetCash, 1000 + 100 + 200*0.7 - 900}, // 現金+有価証券+投資有価証券x70%-有利子負債
+		"cost_ratio":            {v.CostRatio, 0.6}, "current_ratio": {v.CurrentRatio, 2},
+		"equity_ratio": {v.EquityRatio, 0.625}, "roic": {v.Roic, 700.0 / 4650}, // 営業利益1000x0.7/(純資産3750+有利子負債900)
+		"accrual_ratio": {v.Accrual, -500.0 / 6000}, "payout_ratio": {v.Payout, 0.3}, "total_return_ratio": {v.TotalReturn, 0.4},
+		"ebitda": {v.Ebitda, 1300},
+	}
+	for name, c := range checks {
+		if diff := c[0] - c[1]; diff > 1e-9 || diff < -1e-9 {
+			t.Errorf("%s = %v, want %v", name, c[0], c[1])
+		}
+	}
+
+	// 年度末の株価指標: 2026-03-31（火）の終値。休日の場合は、直前の取引日。
+	f := func(x float64) *float64 { return &x }
+	if err := s.UpsertPrices(ctx, []jquants.DailyBar{
+		{Date: "2026-03-30", Code: "11110", C: f(1000), AdjFactor: f(1)},
+		{Date: "2026-03-31", Code: "11110", C: f(1100), AdjFactor: f(1)},
+		{Date: "2026-04-01", Code: "11110", C: f(1500), AdjFactor: f(1)}, // 決算期末より後は、使わない
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertFinancials(ctx, []jquants.Financial{{"Code": "11110", "DiscNo": "1", "DiscDate": "2026-05-10", "DiscTime": "15:00:00",
+		"CurPerType": "FY", "CurFYEn": "2026-03-31", "Sales": "10000", "NP": "700", "Eq": "3750", "ShOutFY": "1100", "TrShFY": "100"}}); err != nil {
+		t.Fatal(err)
+	}
+	var price, mcap, per, pbr, psr, pcfr, ev, evEbitda float64
+	err = s.conn.QueryRow(ctx, `SELECT price::float8, market_cap::float8, per::float8, pbr::float8, psr::float8, pcfr::float8, ev::float8, ev_ebitda::float8
+		FROM valuation_history WHERE code = '11110' AND fy_end = '2026-03-31'`).Scan(&price, &mcap, &per, &pbr, &psr, &pcfr, &ev, &evEbitda)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 時価総額 = 1100円 x (1100-100)株 = 1,100,000
+	hist := map[string][2]float64{
+		"price": {price, 1100}, "market_cap": {mcap, 1100000}, "per": {per, 1100000.0 / 700}, "pbr": {pbr, 1100000.0 / 3750},
+		"psr": {psr, 110}, "pcfr": {pcfr, 1100000.0 / 1200}, "ev": {ev, 1100000 - 340}, "ev_ebitda": {evEbitda, (1100000 - 340) / 1300.0},
+	}
+	for name, c := range hist {
+		if diff := c[0] - c[1]; diff > 1e-6 || diff < -1e-6 {
+			t.Errorf("valuation_history %s = %v, want %v", name, c[0], c[1])
+		}
+	}
+}

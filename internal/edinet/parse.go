@@ -39,8 +39,9 @@ var durationElementRE = regexp.MustCompile(`^jppfs_cor:(` + strings.Join([]strin
 	// 販管費の注記
 	"DepreciationSGA", "DepreciationAndAmortizationSGA",
 	// キャッシュフロー計算書（設備投資、株主還元を含む）
-	"DepreciationAndAmortizationOpeCF", "NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInInvestingActivities",
+	"DepreciationAndAmortizationOpeCF", "NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInInvestmentActivities",
 	"NetCashProvidedByUsedInFinancingActivities", "PurchaseOfPropertyPlantAndEquipmentInvCF", "PurchaseOfIntangibleAssetsInvCF",
+	"PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF", "PurchaseOfNoncurrentAssetsInvCF",
 	"DividendsPaidFinCF", "CashDividendsPaidFinCF", "PurchaseOfTreasuryStockFinCF", "ProceedsFromIssuanceOfSharesFinCF",
 }, "|") + `)$`)
 
@@ -50,6 +51,7 @@ var instantStatementRE = regexp.MustCompile(`^jppfs_cor:(` + strings.Join([]stri
 	"CurrentAssets", "NotesAndAccountsReceivableTrade", "NotesAndAccountsReceivableTradeAndContractAssets", "AccountsReceivableTrade",
 	"NotesReceivableTrade", "ElectronicallyRecordedMonetaryClaimsOperatingCA", "ContractAssets",
 	"Inventories", "Merchandise", "FinishedGoods", "MerchandiseAndFinishedGoods", "WorkInProcess", "RawMaterialsAndSupplies",
+	"RealEstateForSale", "RealEstateForSaleInProcess",
 	"NoncurrentAssets", "PropertyPlantAndEquipment", "IntangibleAssets", "InvestmentsAndOtherAssets", "Assets",
 	"CurrentLiabilities", "NotesAndAccountsPayableTrade", "AccountsPayableTrade", "NotesPayableTrade",
 	"ElectronicallyRecordedObligationsOperatingCL", "NoncurrentLiabilities", "Liabilities",

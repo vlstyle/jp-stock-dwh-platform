@@ -475,7 +475,7 @@ func TestFinancialStatementsAndValuationHistory(t *testing.T) {
 		"jppfs_cor:CurrentLiabilities": "1250", "jppfs_cor:NoncurrentLiabilities": "1000", "jppfs_cor:Liabilities": "2250", "jppfs_cor:NetAssets": "3750",
 		"jppfs_cor:NetSales": "10000", "jppfs_cor:CostOfSales": "6000", "jppfs_cor:SellingGeneralAndAdministrativeExpenses": "3000",
 		"jppfs_cor:OperatingIncome": "1000", "jppfs_cor:OrdinaryIncome": "1050", "jppfs_cor:ProfitLossAttributableToOwnersOfParent": "700",
-		"jppfs_cor:NetCashProvidedByUsedInOperatingActivities": "1200", "jppfs_cor:NetCashProvidedByUsedInInvestingActivities": "-500",
+		"jppfs_cor:NetCashProvidedByUsedInOperatingActivities": "1200", "jppfs_cor:NetCashProvidedByUsedInInvestmentActivities": "-500",
 		"jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF": "-400", "jppfs_cor:PurchaseOfIntangibleAssetsInvCF": "-50",
 		"jppfs_cor:DepreciationAndAmortizationOpeCF": "300", "jppfs_cor:DividendsPaidFinCF": "-210", "jppfs_cor:PurchaseOfTreasuryStockFinCF": "-70",
 	}}
@@ -488,14 +488,30 @@ func TestFinancialStatementsAndValuationHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 不動産業（販売用不動産が棚卸資産）と、有形・無形固定資産の取得を合算で開示する会社。
+	if err := s.UpsertEdinetDocument(ctx, edinet.Document{DocID: "S100FS03", SecCode: "33330", DocTypeCode: "120", PeriodEnd: "2026-03-31"}, day,
+		edinet.Report{AccountingStd: "Japan GAAP", Scope: edinet.ScopeConsolidated, Facts: map[string]string{
+			"jppfs_cor:RealEstateForSale": "700", "jppfs_cor:RealEstateForSaleInProcess": "300",
+			"jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF": "-120", "jppfs_cor:CashAndDeposits": "50",
+			"jppfs_cor:NetCashProvidedByUsedInInvestmentActivities": "-130"}}); err != nil {
+		t.Fatal(err)
+	}
+	var reInv, reCapex, reCfi float64
+	if err := s.conn.QueryRow(ctx, `SELECT inventories::float8, capex::float8, cfi::float8 FROM financial_statements WHERE code = '33330'`).Scan(&reInv, &reCapex, &reCfi); err != nil {
+		t.Fatal(err)
+	}
+	if reInv != 1000 || reCapex != 120 || reCfi != -130 {
+		t.Errorf("real estate company: inventories=%v capex=%v cfi=%v, want 1000, 120, -130", reInv, reCapex, reCfi)
+	}
+
 	type fs struct {
 		Receivables, Inventories, ShortTermLoans, Payables, Capex, Fcf, Debt, NetCash    float64
 		CostRatio, CurrentRatio, EquityRatio, Roic, Accrual, Payout, TotalReturn, Ebitda float64
 	}
 	var v fs
 	var n int
-	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM financial_statements`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("financial_statements rows = %d (IFRSは含めない), err = %v", n, err)
+	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM financial_statements`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("financial_statements rows = %d (日本基準の2社。IFRSは含めない), err = %v", n, err)
 	}
 	err = s.conn.QueryRow(ctx, `
 		SELECT receivables::float8, inventories::float8, short_term_loans::float8, payables::float8, capex::float8, fcf::float8,

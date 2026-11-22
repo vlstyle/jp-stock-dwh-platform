@@ -119,7 +119,7 @@ func TestParseReportTakesStatementItems(t *testing.T) {
 		row("jppfs_cor:OrdinaryIncome", "CurrentYearDuration", "400") +
 		row("jppfs_cor:ProfitLossAttributableToOwnersOfParent", "CurrentYearDuration", "300") +
 		row("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", "CurrentYearDuration", "500") +
-		row("jppfs_cor:NetCashProvidedByUsedInInvestingActivities", "CurrentYearDuration", "-200") +
+		row("jppfs_cor:NetCashProvidedByUsedInInvestmentActivities", "CurrentYearDuration", "-200") +
 		row("jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF", "CurrentYearDuration", "-150") +
 		row("jppfs_cor:DividendsPaidFinCF", "CurrentYearDuration", "-100") +
 		row("jppfs_cor:PurchaseOfTreasuryStockFinCF", "CurrentYearDuration", "-50") +
@@ -133,7 +133,7 @@ func TestParseReportTakesStatementItems(t *testing.T) {
 		"jppfs_cor:NotesAndAccountsReceivableTradeAndContractAssets": "1200", "jppfs_cor:Inventories": "800",
 		"jppfs_cor:PropertyPlantAndEquipment": "2000", "jppfs_cor:NotesAndAccountsPayableTrade": "600", "jppfs_cor:NetAssets": "5500",
 		"jppfs_cor:OrdinaryIncome": "400", "jppfs_cor:ProfitLossAttributableToOwnersOfParent": "300",
-		"jppfs_cor:NetCashProvidedByUsedInOperatingActivities": "500", "jppfs_cor:NetCashProvidedByUsedInInvestingActivities": "-200",
+		"jppfs_cor:NetCashProvidedByUsedInOperatingActivities": "500", "jppfs_cor:NetCashProvidedByUsedInInvestmentActivities": "-200",
 		"jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF": "-150", "jppfs_cor:DividendsPaidFinCF": "-100",
 		"jppfs_cor:PurchaseOfTreasuryStockFinCF": "-50",
 	}

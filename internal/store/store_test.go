@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -366,4 +367,78 @@ func TestNetCashInValuation(t *testing.T) {
 	r = get("86990")
 	eq("ifrs cash", r.cash, 400)
 	eq("ifrs net_cash", r.netCash, 400)
+}
+
+// split_factorは、調整のある行だけの部分インデックスを使い、調整の無い行を無視しても、結果が変わらない。
+func TestSplitFactorUsesPartialIndex(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	if err := Migrate(ctx, url); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	if _, err := s.conn.Exec(ctx, `TRUNCATE prices`); err != nil {
+		t.Fatal(err)
+	}
+
+	f := func(v float64) *float64 { return &v }
+	bars := []jquants.DailyBar{
+		{Date: "2024-01-04", Code: "11110", C: f(100), AdjFactor: f(1)},
+		{Date: "2024-02-01", Code: "11110", C: f(100), AdjFactor: f(0.5)}, // 1:2の分割
+		{Date: "2024-03-01", Code: "11110", C: f(100), AdjFactor: f(1)},
+		{Date: "2024-04-01", Code: "11110", C: f(100), AdjFactor: f(0.2)}, // 1:5の分割
+		{Date: "2024-05-01", Code: "11110", C: f(100), AdjFactor: f(1)},
+		{Date: "2024-05-01", Code: "22220", C: f(100), AdjFactor: f(1)}, // 調整の無い銘柄
+		{Date: "2024-05-02", Code: "22220", C: f(100)},                  // adj_factorがNULL
+	}
+	if err := s.UpsertPrices(ctx, bars); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]map[string]float64{
+		"11110": {"2024-01-01": 0.1, "2024-02-01": 0.2, "2024-04-01": 1, "2024-06-01": 1}, // 基準日より後の調整だけを掛ける
+		"22220": {"2024-01-01": 1},
+	}
+	for code, byDate := range want {
+		for after, factor := range byDate {
+			var got float64
+			if err := s.conn.QueryRow(ctx, `SELECT split_factor($1, $2::date)::float8`, code, after).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if diff := got - factor; diff > 1e-9 || diff < -1e-9 {
+				t.Errorf("split_factor(%s, %s) = %v, want %v", code, after, got, factor)
+			}
+		}
+	}
+
+	// 関数の中のクエリが、部分インデックスを使えること（小さい表でも、使うように強制して確認する）。
+	if _, err := s.conn.Exec(ctx, `SET enable_seqscan = off`); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.conn.Query(ctx, `EXPLAIN SELECT COALESCE(exp(sum(ln(adj_factor))), 1) FROM prices
+		WHERE code = '11110' AND date > '2024-01-01' AND adj_factor <> 1 AND adj_factor > 0`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	used := false
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(line, "prices_adj_events_idx") {
+			used = true
+		}
+	}
+	if !used {
+		t.Error("split_factorのクエリが、prices_adj_events_idxを使っていません")
+	}
 }

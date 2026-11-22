@@ -82,3 +82,5 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/stock_test go test ./...
 
 `screening_live`・`screening_daily`・`screening`: スクリーニング用に、`valuation`・`annual_results`・`cost_structure`を、銘柄ごとの1行（`per`・`pbr`・`f_per`・`psr`・`roe`・`roa`・`op_margin`・`sales_cagr_3y`・`bep_ratio`・`fy_age_days`など）にまとめたもの。`screening_live`は、現在の値を計算するビュー（約1分かかる）。`screening_daily`は、`collector snapshot`が、最新の株価日の日付で保存する日次のスナップショット（同じ日付での再実行は置き換える）。`screening`は、最新のスナップショット。スクリーニングの結果と、前日との差分は、日ごとのスナップショットに条件を当てて、再現できる。
 - `screening_live`は、`valuation`をMATERIALIZEDで先に確定させている（結合の形によって、実行計画が悪くなり、数分以上かかることがあるため）
+
+- `split_factor()`は、`prices`のうち、調整（`adj_factor <> 1`。約530万行のうち約1,000行）がある行だけの部分インデックス`prices_adj_events_idx`を使う。使わないと、`valuation`の全銘柄の計算が、数分〜十数分かかる（1銘柄につき、約11回呼ぶため）

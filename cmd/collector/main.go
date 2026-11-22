@@ -27,7 +27,7 @@ commands:
   master    上場銘柄一覧を取得して保存する
   prices    株価四本値を取得して保存する (--from, --to: YYYY-MM-DD)
   financials  財務情報を開示日ごとに取得して保存する (--from, --to: YYYY-MM-DD)
-  snapshot  業種ごとの指標の分布を、最新の株価日の日付で保存する (sector_stats_daily。J-Quants・EDINETのキーは不要)
+  snapshot  業種ごとの指標の分布と、銘柄ごとの指標（スクリーニング用）を、最新の株価日の日付で保存する (sector_stats_daily・screening_daily。J-Quants・EDINETのキーは不要)
   edinet    EDINETの有価証券報告書から、現金・有価証券・有利子負債と、損益・CFの主要科目を取得して保存する (--from, --to: YYYY-MM-DD, --days, --refetch, --codes)
 
 environment:
@@ -148,6 +148,12 @@ func runSnapshot(ctx context.Context, log *slog.Logger, dbURL string) error {
 		return err
 	}
 	log.Info("sector stats snapshot saved", "snapshot_date", date.Format(collector.DateLayout), "rows", n)
+
+	date, n, err = st.SnapshotScreening(ctx)
+	if err != nil {
+		return err
+	}
+	log.Info("screening snapshot saved", "snapshot_date", date.Format(collector.DateLayout), "rows", n)
 	return nil
 }
 

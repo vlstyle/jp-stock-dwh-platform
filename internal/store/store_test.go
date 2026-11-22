@@ -192,6 +192,25 @@ func TestFinancialsAndValuation(t *testing.T) {
 		t.Errorf("sector_stats_daily rows = %d (want 13, one sector × 13 metrics), err = %v", total, err)
 	}
 
+	// スクリーニング用のスナップショット。再実行しても、行が増えない。上場廃止の銘柄（古い株価だけ）は含まれない。
+	if _, err := s.conn.Exec(ctx, `TRUNCATE screening_daily`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		sd, rows, err := s.SnapshotScreening(ctx)
+		if err != nil || rows != 1 || !sd.Equal(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)) {
+			t.Fatalf("screening snapshot: date=%v rows=%d err=%v", sd, rows, err)
+		}
+	}
+	var scCode, scName string
+	var scPer, scPBR float64
+	if err := s.conn.QueryRow(ctx, `SELECT code, name, per::float8, pbr::float8 FROM screening`).Scan(&scCode, &scName, &scPer, &scPBR); err != nil {
+		t.Fatal(err)
+	}
+	if scCode != "86970" || scName != "JPX" || scPer != 20 || scPBR != 2 {
+		t.Errorf("screening = %s %s per=%v pbr=%v", scCode, scName, scPer, scPBR)
+	}
+
 	var delisted int
 	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM valuation WHERE code = '99990'`).Scan(&delisted); err != nil || delisted != 0 {
 		t.Errorf("stale-price code in valuation: count = %d, err = %v", delisted, err)

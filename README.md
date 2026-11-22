@@ -73,3 +73,7 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/stock_test go test ./...
 `cost_structure`: 銘柄ごとの最新の有価証券報告書（日本基準のみ）から、固定費・変動費を近似したビュー。変動費＝売上原価−売上原価に含まれる減価償却費、固定費＝販管費＋売上原価に含まれる減価償却費（減価償却費はCF計算書の値から、販管費注記の分を引く）。`variable_cost_ratio`・`fixed_cost_ratio`（対売上高）、`bep_sales`（損益分岐点売上高）、`bep_ratio`（損益分岐点売上高÷売上高。低いほど、売上が減っても赤字になりにくい）を持つ。必要な科目（売上高・売上原価・販管費・減価償却費）のどれかが無い会社は含まれない。IFRS・米国基準は対象外。
 - 変動費は、売上原価の人件費・外注費・賃借料などの固定的な費用を含むため、過大になる。固定費・損益分岐点は、過小になる方向の近似
 - 既存の書類は、取り込む科目を増やす前に保存したもので、科目が無い。`collector edinet --refetch --codes <コード> --from … --to …`で、提出日を指定して取得し直す
+
+`annual_results`: 銘柄・決算期ごとの通期(`FY`)の決算の推移。売上・営業利益・純利益・EPS（株式分割を調整）・総資産・CFなどと、`op_margin`・`np_margin`・`roa`・`fcf`、前年比（`sales_yoy`・`op_yoy`・`np_yoy`・`eps_yoy`）、3年の売上CAGR（`sales_cagr_3y`）を持つ。前年比は、直前の決算期が約1年前で、分母が正の場合だけ計算する。
+
+`sector_stats`: 東証33業種（と全体＝`'全体'`）ごとの、指標（`per`・`pbr`・`roe`・`op_margin`・`roa`・`sales_yoy`など）の分布。1行が「業種×指標」で、`n`（件数）・`p25`・`median`・`p75`を持つ。対象は、`valuation`に含まれる銘柄で、値がNULLの銘柄は`n`に含まれない。`valuation`を全件計算するため、1回のクエリに十数秒かかる。

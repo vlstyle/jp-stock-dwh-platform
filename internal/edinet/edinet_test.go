@@ -53,7 +53,7 @@ func TestParseReportPrefersConsolidated(t *testing.T) {
 		row("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant_NonConsolidatedMember", "50") +
 		row("jppfs_cor:BondsPayable", "CurrentYearInstant", "－") +
 		row("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "-20") +
-		row("jppfs_cor:AccountsPayableTrade", "CurrentYearInstant", "7") +
+		row("jppfs_cor:ProvisionForBonuses", "CurrentYearInstant", "7") +
 		row("jpigp_cor:BorrowingsCLIFRS", "CurrentYearInstant", "11")
 	rep, err := ParseReport(makeZip(t, csv))
 	if err != nil {
@@ -81,7 +81,7 @@ func TestParseReportTakesCurrentYearDuration(t *testing.T) {
 		row("jppfs_cor:NetSales", "CurrentYearDuration_NonConsolidatedMember", "900") +
 		row("jppfs_cor:CostOfSales", "CurrentYearDuration", "3000") +
 		row("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "200") +
-		row("jppfs_cor:IncomeTaxes", "CurrentYearDuration", "10") +
+		row("jppfs_cor:InterestIncomeNOI", "CurrentYearDuration", "10") +
 		row("jppfs_cor:CostOfSales", "CurrentYearDuration_SomeSegmentMember", "1") +
 		row("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000")
 	rep, err := ParseReport(makeZip(t, csv))
@@ -96,6 +96,49 @@ func TestParseReportTakesCurrentYearDuration(t *testing.T) {
 	}
 	if rep.Scope != ScopeConsolidated || len(rep.Facts) != len(want) {
 		t.Fatalf("report = %+v", rep)
+	}
+	for k, v := range want {
+		if rep.Facts[k] != v {
+			t.Errorf("%s = %q, want %q", k, rep.Facts[k], v)
+		}
+	}
+}
+
+func TestParseReportTakesStatementItems(t *testing.T) {
+	csv := header +
+		row("jppfs_cor:Assets", "CurrentYearInstant", "9000") +
+		row("jppfs_cor:Assets", "Prior1YearInstant", "8000") +
+		row("jppfs_cor:Assets", "CurrentYearInstant_NonConsolidatedMember", "700") +
+		row("jppfs_cor:CurrentAssets", "CurrentYearInstant", "5000") +
+		row("jppfs_cor:NotesAndAccountsReceivableTradeAndContractAssets", "CurrentYearInstant", "1200") +
+		row("jppfs_cor:Inventories", "CurrentYearInstant", "800") +
+		row("jppfs_cor:PropertyPlantAndEquipment", "CurrentYearInstant", "2000") +
+		row("jppfs_cor:NotesAndAccountsPayableTrade", "CurrentYearInstant", "600") +
+		row("jppfs_cor:NetAssets", "CurrentYearInstant", "5500") +
+		row("jppfs_cor:AccumulatedDepreciation", "CurrentYearInstant", "1") + // 対象外の科目
+		row("jppfs_cor:OrdinaryIncome", "CurrentYearDuration", "400") +
+		row("jppfs_cor:ProfitLossAttributableToOwnersOfParent", "CurrentYearDuration", "300") +
+		row("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", "CurrentYearDuration", "500") +
+		row("jppfs_cor:NetCashProvidedByUsedInInvestingActivities", "CurrentYearDuration", "-200") +
+		row("jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF", "CurrentYearDuration", "-150") +
+		row("jppfs_cor:DividendsPaidFinCF", "CurrentYearDuration", "-100") +
+		row("jppfs_cor:PurchaseOfTreasuryStockFinCF", "CurrentYearDuration", "-50") +
+		row("jppfs_cor:DividendsPaidFinCF", "Prior1YearDuration", "-90")
+	rep, err := ParseReport(makeZip(t, csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"jppfs_cor:Assets": "9000", "jppfs_cor:CurrentAssets": "5000",
+		"jppfs_cor:NotesAndAccountsReceivableTradeAndContractAssets": "1200", "jppfs_cor:Inventories": "800",
+		"jppfs_cor:PropertyPlantAndEquipment": "2000", "jppfs_cor:NotesAndAccountsPayableTrade": "600", "jppfs_cor:NetAssets": "5500",
+		"jppfs_cor:OrdinaryIncome": "400", "jppfs_cor:ProfitLossAttributableToOwnersOfParent": "300",
+		"jppfs_cor:NetCashProvidedByUsedInOperatingActivities": "500", "jppfs_cor:NetCashProvidedByUsedInInvestingActivities": "-200",
+		"jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF": "-150", "jppfs_cor:DividendsPaidFinCF": "-100",
+		"jppfs_cor:PurchaseOfTreasuryStockFinCF": "-50",
+	}
+	if rep.Scope != ScopeConsolidated || len(rep.Facts) != len(want) {
+		t.Fatalf("facts = %v", rep.Facts)
 	}
 	for k, v := range want {
 		if rep.Facts[k] != v {

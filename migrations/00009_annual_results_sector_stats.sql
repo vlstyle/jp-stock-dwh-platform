@@ -34,9 +34,10 @@ SELECT
          THEN power(sales / prev3_sales, 1.0 / 3) - 1 END                                                  AS sales_cagr_3y
 FROM lagged;
 
--- 業種(東証33業種)ごとの、指標の分布（全体も、'全体'として含む）。外れ値に強い、中央値と四分位を使う。
+-- 業種(東証33業種)ごとの、指標の分布を、現在のvaluationから計算する（全体も、'全体'として含む）。外れ値に強い、中央値と四分位を使う。
 -- 対象は、valuationに含まれる銘柄（最新の株価がある銘柄）。指標がNULLの銘柄は、nに含まれない。
-CREATE VIEW sector_stats AS
+-- valuationを全件計算するため、十数秒かかる。通常は、下の日次のスナップショット（sector_stats）を使う。
+CREATE VIEW sector_stats_live AS
 WITH latest_fy AS (
     SELECT DISTINCT ON (code) code, op_margin, np_margin, roa, sales_yoy, op_yoy, sales_cagr_3y
     FROM annual_results
@@ -49,7 +50,7 @@ base AS (
     LEFT JOIN latest_fy a USING (code)
 ),
 scoped AS (
-    SELECT s33_nm AS sector, * FROM base WHERE s33_nm IS NOT NULL
+    SELECT s33_nm AS sector, * FROM base WHERE COALESCE(s33_nm, '') <> ''
     UNION ALL
     SELECT '全体' AS sector, * FROM base
 )
@@ -68,6 +69,27 @@ CROSS JOIN LATERAL (VALUES
 ) AS m(metric, value)
 GROUP BY s.sector, m.metric;
 
+-- sector_stats_liveの日次のスナップショット（collector snapshot）。業種ごとの推移は、ここに貯まる。
+-- snapshot_dateは、スナップショットの基準にした、最新の株価日。
+CREATE TABLE sector_stats_daily (
+    snapshot_date date    NOT NULL,
+    sector        text    NOT NULL,
+    metric        text    NOT NULL,
+    n             integer NOT NULL,
+    p25           numeric,
+    median        numeric,
+    p75           numeric,
+    PRIMARY KEY (snapshot_date, sector, metric)
+);
+
+-- 最新のスナップショット。
+CREATE VIEW sector_stats AS
+SELECT sector, metric, n, p25, median, p75, snapshot_date
+FROM sector_stats_daily
+WHERE snapshot_date = (SELECT max(snapshot_date) FROM sector_stats_daily);
+
 -- +goose Down
 DROP VIEW sector_stats;
+DROP TABLE sector_stats_daily;
+DROP VIEW sector_stats_live;
 DROP VIEW annual_results;

@@ -169,6 +169,29 @@ func TestFinancialsAndValuation(t *testing.T) {
 		t.Errorf("co_name = %q", coName)
 	}
 
+	// 業種ごとの分布のスナップショット。同じ日付で再実行しても、行が増えない。
+	if _, err := s.conn.Exec(ctx, `TRUNCATE sector_stats_daily`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		date, rows, err := s.SnapshotSectorStats(ctx)
+		if err != nil || rows == 0 || !date.Equal(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)) {
+			t.Fatalf("snapshot: date=%v rows=%d err=%v", date, rows, err)
+		}
+	}
+	var statN int
+	var statMedian float64
+	if err := s.conn.QueryRow(ctx, `SELECT n, median::float8 FROM sector_stats WHERE sector = '全体' AND metric = 'per'`).Scan(&statN, &statMedian); err != nil {
+		t.Fatal(err)
+	}
+	if statN != 1 || statMedian != 20 {
+		t.Errorf("sector_stats per: n=%d median=%v, want 1, 20", statN, statMedian)
+	}
+	var total int
+	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM sector_stats_daily`).Scan(&total); err != nil || total != 13 {
+		t.Errorf("sector_stats_daily rows = %d (want 13, one sector × 13 metrics), err = %v", total, err)
+	}
+
 	var delisted int
 	if err := s.conn.QueryRow(ctx, `SELECT count(*) FROM valuation WHERE code = '99990'`).Scan(&delisted); err != nil || delisted != 0 {
 		t.Errorf("stale-price code in valuation: count = %d, err = %v", delisted, err)

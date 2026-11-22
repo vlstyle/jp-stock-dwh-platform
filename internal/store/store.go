@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -279,4 +280,26 @@ func (s *Store) UpsertEdinetDocument(ctx context.Context, d edinet.Document, sub
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+const snapshotSectorStats = `
+INSERT INTO sector_stats_daily (snapshot_date, sector, metric, n, p25, median, p75)
+SELECT $1::date, sector, metric, n, p25, median, p75 FROM sector_stats_live
+ON CONFLICT (snapshot_date, sector, metric) DO UPDATE SET
+    n = EXCLUDED.n, p25 = EXCLUDED.p25, median = EXCLUDED.median, p75 = EXCLUDED.p75`
+
+// SnapshotSectorStats は、現在の業種ごとの指標の分布を、最新の株価日の日付で保存する。同じ日付で再実行すると、置き換える。
+func (s *Store) SnapshotSectorStats(ctx context.Context) (time.Time, int64, error) {
+	date, ok, err := s.LatestPriceDate(ctx)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	if !ok {
+		return time.Time{}, 0, errors.New("株価がありません")
+	}
+	tag, err := s.conn.Exec(ctx, snapshotSectorStats, date)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	return date, tag.RowsAffected(), nil
 }

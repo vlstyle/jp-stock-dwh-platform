@@ -76,4 +76,6 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/stock_test go test ./...
 
 `annual_results`: 銘柄・決算期ごとの通期(`FY`)の決算の推移。売上・営業利益・純利益・EPS（株式分割を調整）・総資産・CFなどと、`op_margin`・`np_margin`・`roa`・`fcf`、前年比（`sales_yoy`・`op_yoy`・`np_yoy`・`eps_yoy`）、3年の売上CAGR（`sales_cagr_3y`）を持つ。前年比は、直前の決算期が約1年前で、分母が正の場合だけ計算する。
 
-`sector_stats`: 東証33業種（と全体＝`'全体'`）ごとの、指標（`per`・`pbr`・`roe`・`op_margin`・`roa`・`sales_yoy`など）の分布。1行が「業種×指標」で、`n`（件数）・`p25`・`median`・`p75`を持つ。対象は、`valuation`に含まれる銘柄で、値がNULLの銘柄は`n`に含まれない。`valuation`を全件計算するため、1回のクエリに十数秒かかる。
+`sector_stats`: 東証33業種（と全体＝`'全体'`）ごとの、指標（`per`・`pbr`・`roe`・`op_margin`・`roa`・`sales_yoy`など）の分布の、**最新のスナップショット**。1行が「業種×指標」で、`n`（件数）・`p25`・`median`・`p75`・`snapshot_date`を持つ。対象は、`valuation`に含まれる銘柄で、値がNULLの銘柄は`n`に含まれない。
+- スナップショットは、`collector snapshot`が、`sector_stats_live`（現在の`valuation`から計算するビュー。十数秒かかる）の結果を、最新の株価日の日付で`sector_stats_daily`に保存する。同じ日付での再実行は、置き換える。業種ごとの推移は、`sector_stats_daily`に貯まる（過去分は、さかのぼって作れない）
+- 通常は、`sector_stats`を読む。`valuation`の更新後に`snapshot`を実行しないと、古い分布のまま
